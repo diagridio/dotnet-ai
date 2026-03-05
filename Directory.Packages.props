@@ -1,0 +1,12 @@
+<Project>
+    <PropertyGroup>
+        <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+        <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageVersion Include="Dapr.AI.Microsoft.Extensions" Version="1.17.1" />
+        <PackageVersion Include="Dapr.Workflow" Version="1.17.1" />
+        <PackageVersion Include="Microsoft.Agents.AI" Version="1.0.0-preview.260108.1" />
+        <PackageVersion Include="Microsoft.Extensions.AI" Version="10.3.0" />
+    </ItemGroup>
+</Project>

@@ -1,0 +1,6 @@
+<Project>
+    <PropertyGroup>
+        <IsPackable>false</IsPackable>
+        <NoWarn>$(NoWarn);DAPR_CONVERSATION</NoWarn>
+    </PropertyGroup>
+</Project>

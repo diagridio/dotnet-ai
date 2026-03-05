@@ -1,0 +1,7 @@
+{
+  "_comment": "This policy allows the 10.0.100 SDK or patches in that family.",
+  "sdk": {
+    "version": "10.0.100",
+    "rollForward": "latestFeature"
+  }
+}

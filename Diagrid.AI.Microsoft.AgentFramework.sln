@@ -1,0 +1,51 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Diagrid.AI.Microsoft.AgentFramework", "src\Diagrid.AI.Microsoft.AgentFramework\Diagrid.AI.Microsoft.AgentFramework.csproj", "{F6D075AE-92F2-48DE-8722-C7272DC3C1B3}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{EC533E2B-D00B-4B7E-A2B4-CB54DBB63950}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "examples", "examples", "{90FD620C-57BC-430C-B738-5895312B46E9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AgentInvokerDemo", "examples\AgentInvokerDemo\AgentInvokerDemo.csproj", "{DFD0D5D3-6754-464E-967C-45481AE4ECD5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EmailGateDemo", "examples\EmailGateDemo\EmailGateDemo.csproj", "{AFABC373-BE4B-44BA-BD25-581F6EC8E8FD}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KeyedAgentInvokerDemo", "examples\KeyedAgentInvokerDemo\KeyedAgentInvokerDemo.csproj", "{79DF1201-2A7F-4FFC-9DD1-3CCF8F7F4DBA}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RouterDemo", "examples\RouterDemo\RouterDemo.csproj", "{B4FB3E81-D8E6-48E5-A034-68A706DBE440}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F6D075AE-92F2-48DE-8722-C7272DC3C1B3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F6D075AE-92F2-48DE-8722-C7272DC3C1B3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F6D075AE-92F2-48DE-8722-C7272DC3C1B3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F6D075AE-92F2-48DE-8722-C7272DC3C1B3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DFD0D5D3-6754-464E-967C-45481AE4ECD5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DFD0D5D3-6754-464E-967C-45481AE4ECD5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DFD0D5D3-6754-464E-967C-45481AE4ECD5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DFD0D5D3-6754-464E-967C-45481AE4ECD5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AFABC373-BE4B-44BA-BD25-581F6EC8E8FD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AFABC373-BE4B-44BA-BD25-581F6EC8E8FD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AFABC373-BE4B-44BA-BD25-581F6EC8E8FD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AFABC373-BE4B-44BA-BD25-581F6EC8E8FD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{79DF1201-2A7F-4FFC-9DD1-3CCF8F7F4DBA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{79DF1201-2A7F-4FFC-9DD1-3CCF8F7F4DBA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{79DF1201-2A7F-4FFC-9DD1-3CCF8F7F4DBA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{79DF1201-2A7F-4FFC-9DD1-3CCF8F7F4DBA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B4FB3E81-D8E6-48E5-A034-68A706DBE440}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B4FB3E81-D8E6-48E5-A034-68A706DBE440}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B4FB3E81-D8E6-48E5-A034-68A706DBE440}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B4FB3E81-D8E6-48E5-A034-68A706DBE440}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{F6D075AE-92F2-48DE-8722-C7272DC3C1B3} = {EC533E2B-D00B-4B7E-A2B4-CB54DBB63950}
+		{DFD0D5D3-6754-464E-967C-45481AE4ECD5} = {90FD620C-57BC-430C-B738-5895312B46E9}
+		{AFABC373-BE4B-44BA-BD25-581F6EC8E8FD} = {90FD620C-57BC-430C-B738-5895312B46E9}
+		{79DF1201-2A7F-4FFC-9DD1-3CCF8F7F4DBA} = {90FD620C-57BC-430C-B738-5895312B46E9}
+		{B4FB3E81-D8E6-48E5-A034-68A706DBE440} = {90FD620C-57BC-430C-B738-5895312B46E9}
+	EndGlobalSection
+EndGlobal

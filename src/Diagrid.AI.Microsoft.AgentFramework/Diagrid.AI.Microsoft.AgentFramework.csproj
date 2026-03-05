@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <Description>Dapr-based hosting for agents using Dapr.Workflows and Dapr.AI.Microsoft.Extensions packages.</Description>
+        <PackageTags>dapr;workflow;ai;agents;microsoft-extensions-ai</PackageTags>
+        <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>        
+    </PropertyGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Dapr.AI.Microsoft.Extensions" />
+      <PackageReference Include="Dapr.Workflow" />
+      <PackageReference Include="Microsoft.Agents.AI" />
+      <PackageReference Include="Microsoft.Extensions.AI" />
+    </ItemGroup>
+    
+</Project>
