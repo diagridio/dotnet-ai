@@ -3,7 +3,7 @@
 ## Business Source License 1.1
 
 **Licensor:** Diagrid Inc  
-**Licensed Work:** Diagrid AI Infrastructure SDK for Python  
+**Licensed Work:** Diagrid AI Infrastructure SDK for .NET  
 The Licensed Work is © 2026–Present Diagrid Inc.
 
 ---
