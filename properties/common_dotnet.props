@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <Import Project="dapr_common.props" />
+    <PropertyGroup>
+        <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+        <LangVersion>12.0</LangVersion>
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+        <WarningLevel>4</WarningLevel>
+        <WarnOnPackingNonPackableProject>false</WarnOnPackingNonPackableProject>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <AssemblyClsCompliant>true</AssemblyClsCompliant>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <DebugType>full</DebugType>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <HighEntropyVA>true</HighEntropyVA>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    </PropertyGroup>
+    
+    <PropertyGroup>
+        <Product>Diagrid.AI.Microsoft.AgentFramework</Product>
+        <Copyright>Copyright (c) Diagrid. All rights reserved.</Copyright>
+        <Company>Diagrid</Company>
+        <Authors>Diagrid</Authors>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="MinVer">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <PropertyGroup>
+        <MinVerTagPrefix>v</MinVerTagPrefix>
+        <MinVerDefaultPreReleaseIdentifiers>rc</MinVerDefaultPreReleaseIdentifiers>
+    </PropertyGroup>
+</Project>
