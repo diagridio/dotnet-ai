@@ -9,5 +9,6 @@
         <PackageVersion Include="GitHubActionsTestLogger" Version="3.0.1" />
         <PackageVersion Include="Microsoft.Agents.AI" Version="1.0.0-preview.260108.1" />
         <PackageVersion Include="Microsoft.Extensions.AI" Version="10.3.0" />
+        <PackageVersion Include="MinVer" Version="7.0.0" />
     </ItemGroup>
 </Project>

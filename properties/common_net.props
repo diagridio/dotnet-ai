@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <Import Project="common.props"/>
+    <PropertyGroup>
+        <Configuration Condition=" $(Configuration) == '' ">Debug</Configuration>
+        <LangVersion>12.0</LangVersion>
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+        <WarningLevel>4</WarningLevel>
+        <WarnOnPackingNonPackableProject>false</WarnOnPackingNonPackableProject>
+    </PropertyGroup>
+    
+    <ItemGroup>
+        <AssemblyClsCompliant>true</AssemblyClsCompliant>
+    </ItemGroup>
+    
+    <PropertyGroup>
+        <DebugType>full</DebugType>
+    </PropertyGroup>
+    
+    <PropertyGroup>
+        <HighEntropyVA>true</HighEntropyVA>
+    </PropertyGroup>
+    
+    <PropertyGroup>
+        <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    </PropertyGroup>
+    
+    <PropertyGroup>
+        <Product>.NET AI</Product>
+        <Copyright>Copyright (c) Diagrid. All rights reserved.</Copyright>
+        <Company>Diagrid</Company>
+    </PropertyGroup>
+    
+    <!-- Use MinVer for assembly, nuget versioning based on git tags -->
+    <ItemGroup>
+        <PackageReference Include="MinVer" PrivateAssets="all" IncludeAssets="runtime; build; native; contentfiles; analyzers; buildtransitive" />
+    </ItemGroup>
+    <PropertyGroup>
+        <MinVerTagPrefix>v</MinVerTagPrefix>
+        <MinVerDefaultReleaseIdentifiers>rc</MinVerDefaultReleaseIdentifiers>
+    </PropertyGroup>
+</Project>
