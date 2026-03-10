@@ -2,6 +2,6 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
         <RepoRoot>$(MSBuildThisFileDirectory)</RepoRoot>
-        <RequestedVerbosity Condition=" '$(RequestedVerbosity) == '' ">minimal</RequestedVerbosity>
+        <RequestedVerbosity Condition=" '$(RequestedVerbosity)' == '' ">minimal</RequestedVerbosity>
     </PropertyGroup>
 </Project>

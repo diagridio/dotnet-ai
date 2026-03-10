@@ -9,9 +9,9 @@
         <WarnOnPackingNonPackableProject>false</WarnOnPackingNonPackableProject>
     </PropertyGroup>
     
-    <ItemGroup>
+    <PropertyGroup>
         <AssemblyClsCompliant>true</AssemblyClsCompliant>
-    </ItemGroup>
+    </PropertyGroup>
     
     <PropertyGroup>
         <DebugType>full</DebugType>
