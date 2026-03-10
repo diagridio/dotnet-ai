@@ -1,0 +1,25 @@
+<Project>
+    <PropertyGroup>
+        <Authors>Diagrid</Authors>
+        <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+        <PackageLicenseExpression>BSL-1.1</PackageLicenseExpression>
+        <PackageLicenseUrl>https://github.com/diagridio/dotnet-ai/blob/master/LICENSE.md</PackageLicenseUrl>
+        <PackageProjectUrl>https://diagrid.io</PackageProjectUrl>
+        <PackageIcon>images\logo.svg</PackageIcon>
+        <PackageTags>diagrid dapr workflow ai</PackageTags>
+        <RepositoryUrl>https://github.com/diagridio/dotnet-ai</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageOutputPath>$(RepoRoot)bin\$(Configuration)\nugets</PackageOutputPath>
+    </PropertyGroup>
+    
+    <!-- Icon for NuGet packages -->
+    <ItemGroup>
+        <None Include="$(MSBuildThisFileDirectory)..\properties\logo.svg"/>
+    </ItemGroup>
+
+    <!-- Enable symbols package generation. https://docs.microsoft.com/nuget/create-packages/symbol-packages-snupkg -->
+    <PropertyGroup>
+        <IncludeSymbols>true</IncludeSymbols>
+        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    </PropertyGroup>
+</Project>
