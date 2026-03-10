@@ -6,6 +6,7 @@
     <ItemGroup>
         <PackageVersion Include="Dapr.AI.Microsoft.Extensions" Version="1.17.3" />
         <PackageVersion Include="Dapr.Workflow" Version="1.17.3" />
+        <PackageVersion Include="GitHubActionsTestLogger" Version="3.0.1" />
         <PackageVersion Include="Microsoft.Agents.AI" Version="1.0.0-preview.260108.1" />
         <PackageVersion Include="Microsoft.Extensions.AI" Version="10.3.0" />
     </ItemGroup>
