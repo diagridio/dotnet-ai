@@ -4,9 +4,20 @@
         <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
     </PropertyGroup>
     <ItemGroup>
+        <PackageVersion Include="coverlet.collector" Version="8.0.0" />
         <PackageVersion Include="Dapr.AI.Microsoft.Extensions" Version="1.17.3" />
         <PackageVersion Include="Dapr.Workflow" Version="1.17.3" />
+        <PackageVersion Include="GitHubActionsTestLogger" Version="3.0.1" />
         <PackageVersion Include="Microsoft.Agents.AI" Version="1.0.0-preview.260108.1" />
         <PackageVersion Include="Microsoft.Extensions.AI" Version="10.3.0" />
+        <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
+        <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="8.0.24" Condition="'$(TargetFramework)' == 'net8.0'" />
+        <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="9.0.13" Condition="'$(TargetFramework)' == 'net9.0'" />
+        <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="10.0.3" Condition="'$(TargetFramework)' == 'net10.0'" />
+        <PackageVersion Include="MinVer" Version="7.0.0" />
+        <PackageVersion Include="moq" Version="4.20.72" />
+        <PackageVersion Include="xunit" Version="2.9.3" />
+        <PackageVersion Include="xunit.extensibility.core" Version="2.9.3" />
+        <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
     </ItemGroup>
 </Project>

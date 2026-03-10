@@ -1,0 +1,16 @@
+<Project>
+    <Import Project="$(MSBuildThisFileDirectory)..\properties\common_net.props" />
+    <PropertyGroup>
+        <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+        
+        <OutputPath>$(RepoRoot)bin\$(Configuration)\test\$(MSBuildProjectName)\</OutputPath>
+        
+        <IsPackable>false</IsPackable>
+        <NoWarm>$(NoWarn);DAPR_CONVERSATION</NoWarm>
+    </PropertyGroup>
+
+    <!-- Used to annotate PR with test failures: https://github.com/Tyrrrz/GitHubActionsTestLogger -->
+    <ItemGroup>
+        <PackageReference Include="GitHubActionsTestLogger" />
+    </ItemGroup>
+</Project>
