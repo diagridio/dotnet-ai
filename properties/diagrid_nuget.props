@@ -16,6 +16,11 @@
         <None Include="$(RepoRoot)LICENSE.md" Pack="true" PackagePath="" />
     </ItemGroup>
     
+    <!-- README -->
+    <ItemGroup>
+        <None Include="$(RepoRoot)README.md" Pack="true" PackagePath="" />
+    </ItemGroup>
+    
     <!-- Icon for NuGet packages -->
     <ItemGroup>
         <None Include="$(MSBuildThisFileDirectory)..\properties\logo.png" Pack="true" PackagePath="" />
