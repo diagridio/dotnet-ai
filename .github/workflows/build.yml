@@ -261,7 +261,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: packages
-          path: packages
+          path: ${{ env.NUPKG_OUTDIR }}
       - name: List packages
         run: ls packages/*.nupkg
       - name: Generate matrix
@@ -294,7 +294,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: packages
-          path: packages
+          path: ${{ env.NUPKG_OUTDIR }}
       - name: NuGet logic (OIDC > temp API key)
         uses: NuGet/login@v1
         id: login
