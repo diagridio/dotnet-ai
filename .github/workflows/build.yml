@@ -15,10 +15,7 @@ on:
   
 jobs:
   build:
-    strategy:
-      matrix:
-        os: ${{ fromJson(vars.RUNNER_OS) }}
-    runs-on: [ self-hosted, X64, ${{ matrix.os }} ]
+    runs-on: [ self-hosted, X64 ]
     env:
       NUPKG_OUTDIR: bin/Release/nugets
     steps:
@@ -43,10 +40,7 @@ jobs:
           path: ${{ env.NUPKG_OUTDIR }}
   
   discover-unit-test-projects:
-    strategy:
-      matrix:
-        os: ${{ fromJson(vars.RUNNER_OS) }}
-    runs-on: [ self-hosted, X64, ${{ matrix.os }} ]
+    runs-on: [ self-hosted, X64 ]
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -186,10 +180,8 @@ jobs:
   unit-tests:
     name: Unit Tests ${{ matrix.display-name }} / ${{ matrix.os }} - ${{ matrix.project }}
     needs: discover-unit-test-projects
-    runs-on: [ self-hosted, X64, ${{ matrix.os }} ]
+    runs-on: [ self-hosted, X64 ]
     strategy:
-      matrix:
-        os: ${{ fromJson(vars.RUNNER_OS) }}
       fail-fast: false
       project: ${{ fromJson(needs.discover-unit-test-projects.outputs.matrix) }}
       include:
@@ -250,7 +242,7 @@ jobs:
     strategy:
       matrix:
         os: ${{ fromJson(vars.RUNNER_OS) }}
-    runs-on: [ self-hosted, X64, ${{ matrix.os }} ]
+    runs-on: [ self-hosted, X64 ]
     needs: [ unit-tests ]
     steps:
       - name: "All unit tests passed"
@@ -262,7 +254,7 @@ jobs:
     strategy:
       matrix:
         os: ${{ fromJson(vars.RUNNER_OS) }}
-    runs-on: [ self-hosted, X64, ${{ matrix.os }} ]
+    runs-on: [ self-hosted, X64 ]
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -293,7 +285,7 @@ jobs:
     if: |
       startswith(github.ref, 'refs/tags/v') &&
       !(endsWith(github.ref, '-rc') || endsWith(github.ref, '-dev') || endsWith(github.ref, '-prerelease'))
-    runs-on: [ self-hosted, X64, ${{ matrix.os }} ]
+    runs-on: [ self-hosted, X64 ]
     strategy:
       fail-fast: false
       matrix:
