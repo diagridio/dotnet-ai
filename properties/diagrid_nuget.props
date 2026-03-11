@@ -2,7 +2,7 @@
     <PropertyGroup>
         <Authors>Diagrid</Authors>
         <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
-        <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
+        <PackageLicenseFile>..\LICENSE.md</PackageLicenseFile>
         <PackageProjectUrl>https://diagrid.io</PackageProjectUrl>
         <PackageIcon>images\logo.svg</PackageIcon>
         <PackageTags>diagrid dapr workflow ai</PackageTags>
