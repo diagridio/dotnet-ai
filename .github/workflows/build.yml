@@ -42,6 +42,7 @@ jobs:
           path: ${{ env.NUPKG_OUTDIR }}
   
   discover-unit-test-projects:
+    needs: ['build']
     runs-on: [ self-hosted, X64 ]
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
@@ -181,7 +182,7 @@ jobs:
 
   unit-tests:
     name: Unit Tests ${{ matrix.display-name }} / ${{ matrix.os }} - ${{ matrix.project }}
-    needs: discover-unit-test-projects
+    needs: ['build', 'discover-unit-test-projects']
     runs-on: [ self-hosted, X64 ]
     strategy:
       fail-fast: false
@@ -245,7 +246,7 @@ jobs:
 
   ci-unit-tests-gate:
     runs-on: [ self-hosted, X64 ]
-    needs: [ unit-tests ]
+    needs: [ 'build', 'unit-tests' ]
     steps:
       - name: "All unit tests passed"
         run: echo "All unit tests passed"
@@ -261,7 +262,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: packages
-          path: ${{ env.NUPKG_OUTDIR }}
+          path: packages
       - name: List packages
         run: ls packages/*.nupkg
       - name: Generate matrix
@@ -280,7 +281,7 @@ jobs:
     permissions:
       id-token: write # Enable GitHub OIDC token issuance for this job
     name: Publish Packages
-    needs: ['discover']
+    needs: ['build', 'discover']
     if: |
       startswith(github.ref, 'refs/tags/v') &&
       !(endsWith(github.ref, '-rc') || endsWith(github.ref, '-dev') || endsWith(github.ref, '-prerelease'))
@@ -294,7 +295,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: packages
-          path: ${{ env.NUPKG_OUTDIR }}
+          path: packages
       - name: NuGet logic (OIDC > temp API key)
         uses: NuGet/login@v1
         id: login
