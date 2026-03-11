@@ -1,6 +1,6 @@
 <Project>
-    <Import Project="$(MSBuildThisFileDirectory)..\properties\common.props"/>
     <Import Project="$(MSBuildThisFileDirectory)..\properties\common_dotnet.props"/>
+    <Import Project="$(MSBuildThisFileDirectory)..\properties\diagrid_nuget.props"/>
     
     <PropertyGroup>
         <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
