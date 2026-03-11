@@ -12,20 +12,17 @@ on:
     branches:
       - master
       - release-*
-
-env:
-  runner_os: '["Linux", "Windows"]'
   
 jobs:
   build:
     strategy:
       matrix:
-        os: ${{ fromJson(env.runner_os) }}
+        os: ${{ fromJson(vars.RUNNER_OS) }}
     runs-on: [ self-hosted, X64, ${{ matrix.os }} ]
     env:
       NUPKG_OUTDIR: bin/Release/nugets
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v4
         with:
           clean: true
       - name: Setup .NET
@@ -48,7 +45,7 @@ jobs:
   discover-unit-test-projects:
     strategy:
       matrix:
-        os: ${{ fromJson(env.runner_os) }}
+        os: ${{ fromJson(vars.RUNNER_OS) }}
     runs-on: [ self-hosted, X64, ${{ matrix.os }} ]
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
@@ -64,7 +61,7 @@ jobs:
 #  get-dapr-versions:
 #    strategy:
 #      matrix:
-#        os: ${{ fromJson(env.runner_os) }}
+#        os: ${{ fromJson(vars.RUNNER_OS) }}
 #    name: Build
 #    runs-on: [ self-hosted, X64, ${{ matrix.os }} ]
 #    outputs:
@@ -95,7 +92,7 @@ jobs:
 #  compute-integration-matrix:
 #    strategy:
 #      matrix:
-#        os: ${{ fromJson(env.runner_os) }}
+#        os: ${{ fromJson(vars.RUNNER_OS) }}
 #    name: Build
 #    runs-on: [ self-hosted, X64, ${{ matrix.os }} ]
 #    needs: [ discover-integration-v2-tests, get-dapr-versions ]
@@ -192,7 +189,7 @@ jobs:
     runs-on: [ self-hosted, X64, ${{ matrix.os }} ]
     strategy:
       matrix:
-        os: ${{ fromJson(env.runner-os) }}
+        os: ${{ fromJson(vars.RUNNER_OS) }}
       fail-fast: false
       project: ${{ fromJson(needs.discover-unit-test-projects.outputs.matrix) }}
       include:
@@ -252,7 +249,7 @@ jobs:
   ci-unit-tests-gate:
     strategy:
       matrix:
-        os: ${{ fromJson(env.runner_os) }}
+        os: ${{ fromJson(vars.RUNNER_OS) }}
     runs-on: [ self-hosted, X64, ${{ matrix.os }} ]
     needs: [ unit-tests ]
     steps:
@@ -264,7 +261,7 @@ jobs:
     needs: ['build', 'ci-unit-tests-gate']
     strategy:
       matrix:
-        os: ${{ fromJson(env.runner_os) }}
+        os: ${{ fromJson(vars.RUNNER_OS) }}
     runs-on: [ self-hosted, X64, ${{ matrix.os }} ]
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
@@ -301,7 +298,7 @@ jobs:
       fail-fast: false
       matrix:
         package: ${{ fromJson(needs.discover.outputs.matrix) }}
-        os: ${{ fromJson(env.runner_os) }}
+        os: ${{ fromJson(vars.RUNNER_OS) }}
     steps:
       - name: Download release artifacts
         uses: actions/download-artifact@v4
