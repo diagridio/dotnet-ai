@@ -206,7 +206,7 @@ jobs:
     steps:
       - uses: actions/checkout@v1
       - name: Parse release version
-        run: python ./.github/scripts/get_release_version.py
+        run: python3 ./.github/scripts/get_release_version.py
       - name: Setup ${{ matrix.display-name }}
         uses: actions/setup-dotnet@v3
         with:
