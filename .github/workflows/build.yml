@@ -15,15 +15,11 @@ on:
   
 jobs:
   build:
-    strategy:
-      matrix:
-        runs-on-os-labels: [ ubuntu-latest-m, windows-latest-l ]
-    name: Build
-    runs-on: [ self-hosted, ${ { matrix.runs-on-os-labels } } ]
+    runs-on: [ self-hosted, X64 ]
     env:
       NUPKG_OUTDIR: bin/Release/nugets
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v4
         with:
           clean: true
       - name: Setup .NET
@@ -31,6 +27,8 @@ jobs:
         with:
           dotnet-version: 10.0.x
           dotnet-quality: 'ga'
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
       - name: Restore dependendencies
         run: dotnet restore
       - name: Build
@@ -44,28 +42,25 @@ jobs:
           path: ${{ env.NUPKG_OUTDIR }}
   
   discover-unit-test-projects:
-    strategy:
-      matrix:
-        runs-on-os-labels: [ ubuntu-latest-m, windows-latest-l ]
-    name: Build
-    runs-on: [ self-hosted, ${ { matrix.runs-on-os-labels } } ]
+    needs: ['build']
+    runs-on: [ self-hosted, X64 ]
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v4
       - id: set-matrix
         run: |
           # Find all csproj files matching the pattern recursively
-          PROJECTS=$(find test -name "Diagrid.*.Test.csproj" ! -name "*E2E*" | jq -R -s -c 'split("\n")[:-1]')
+          PROJECTS=$(find test -name "Diagrid.*.Test.csproj" | jq -R -s -c 'split("\n")[:-1]')
           echo "matrix=$PROJECTS" >> $GITHUB_OUTPUT
 
 # Don't need the following until we have integration tests in place
 #  get-dapr-versions:
 #    strategy:
 #      matrix:
-#        runs-on-os-labels: [ ubuntu-latest-m, windows-latest-l ]
+#        os: ${{ fromJson(vars.RUNNER_OS) }}
 #    name: Build
-#    runs-on: [ self-hosted, ${ { matrix.runs-on-os-labels } } ]
+#    runs-on: [ self-hosted, X64, ${{ matrix.os }} ]
 #    outputs:
 #      matrix_json: ${{ steps.compute.outputs.matrix_json }}
 #    steps:
@@ -94,9 +89,9 @@ jobs:
 #  compute-integration-matrix:
 #    strategy:
 #      matrix:
-#        runs-on-os-labels: [ ubuntu-latest-m, windows-latest-l ]
+#        os: ${{ fromJson(vars.RUNNER_OS) }}
 #    name: Build
-#    runs-on: [ self-hosted, ${ { matrix.runs-on-os-labels } } ]
+#    runs-on: [ self-hosted, X64, ${{ matrix.os }} ]
 #    needs: [ discover-integration-v2-tests, get-dapr-versions ]
 #    outputs:
 #      matrix: ${{ steps.build.outputs.matrix }}
@@ -187,38 +182,39 @@ jobs:
 
   unit-tests:
     name: Unit Tests ${{ matrix.display-name }} / ${{ matrix.os }} - ${{ matrix.project }}
-    needs: discover-unit-test-projects
-    name: Build
-    runs-on: [ self-hosted, ${ { matrix.runs-on-os-labels } } ]
+    needs: ['build', 'discover-unit-test-projects']
+    runs-on: [ self-hosted, X64 ]
     strategy:
-      runs-on-os-labels: [ ubuntu-latest-m, windows-latest-l ]
       fail-fast: false
-      project: ${{ fromJson(needs.discover-unit-test-projects.outputs.matrix) }}
-      include:
-        - dotnet-version: '8.0'
-          display-name: '.NET 8.0'
-          framework: 'net8.0'
-          prefix: 'net8'
-          install-version: '8.0.x'
-        - dotnet-version: '9.0'
-          display-name: '.NET 9.0'
-          framework: 'net9.0'
-          prefix: 'net9'
-          install-version: '9.0.x'
-        - dotnet-version: '10.0'
-          display-name: '.NET 10.0'
-          framework: 'net10.0'
-          prefix: 'net10'
-          install-version: '10.0.x'
+      matrix:
+        project: ${{ fromJson(needs.discover-unit-test-projects.outputs.matrix) }}
+        include:
+          - dotnet-version: '8.0'
+            display-name: '.NET 8.0'
+            framework: 'net8.0'
+            prefix: 'net8'
+            install-version: '8.0.x'
+          - dotnet-version: '9.0'
+            display-name: '.NET 9.0'
+            framework: 'net9.0'
+            prefix: 'net9'
+            install-version: '9.0.x'
+          - dotnet-version: '10.0'
+            display-name: '.NET 10.0'
+            framework: 'net10.0'
+            prefix: 'net10'
+            install-version: '10.0.x'
     steps:
       - uses: actions/checkout@v1
       - name: Parse release version
-        run: python ./.github/scripts/get_release_version.py
+        run: python3 ./.github/scripts/get_release_version.py
       - name: Setup ${{ matrix.display-name }}
         uses: actions/setup-dotnet@v3
         with:
           dotnet-version: ${{ matrix.install-version }}
           dotnet-quality: 'ga' # Prefer a GA release, but use the RC if not available
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
       - name: Test
         id: tests
         continue-on-error: true # proceed if tests fail to allow for the report generation in master or next step failure in PR
@@ -249,12 +245,8 @@ jobs:
           REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   ci-unit-tests-gate:
-    strategy:
-      matrix:
-        runs-on-os-labels: [ ubuntu-latest-m, windows-latest-l ]
-    name: Build
-    runs-on: [ self-hosted, ${ { matrix.runs-on-os-labels } } ]
-    needs: [ unit-tests ]
+    runs-on: [ self-hosted, X64 ]
+    needs: [ 'build', 'unit-tests' ]
     steps:
       - name: "All unit tests passed"
         run: echo "All unit tests passed"
@@ -262,11 +254,7 @@ jobs:
   discover:
     name: 'Discover Packages'
     needs: ['build', 'ci-unit-tests-gate']
-    strategy:
-      matrix:
-        runs-on-os-labels: [ ubuntu-latest-m, windows-latest-l ]
-    runs-on: [ self-hosted, ${ { matrix.runs-on-os-labels } } ]
-    name: Build
+    runs-on: [ self-hosted, X64 ]
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -293,23 +281,22 @@ jobs:
     permissions:
       id-token: write # Enable GitHub OIDC token issuance for this job
     name: Publish Packages
-    needs: ['discover']
+    needs: ['build', 'discover']
     if: |
       startswith(github.ref, 'refs/tags/v') &&
       !(endsWith(github.ref, '-rc') || endsWith(github.ref, '-dev') || endsWith(github.ref, '-prerelease'))
-    runs-on: [ self-hosted, ${ { matrix.runs-on-os-labels } } ]
+    runs-on: [ self-hosted, X64 ]
     strategy:
       fail-fast: false
       matrix:
         package: ${{ fromJson(needs.discover.outputs.matrix) }}
-        runs-on-os-labels: [ ubuntu-latest-m, windows-latest-l ]
     steps:
       - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
           name: packages
           path: packages
-      - name: NuGet logic (OIDC -> temp API key)
+      - name: NuGet logic (OIDC > temp API key)
         uses: NuGet/login@v1
         id: login
         with:
