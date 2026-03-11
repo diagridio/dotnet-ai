@@ -17,8 +17,8 @@ jobs:
   build:
     strategy:
       matrix:
-        runs-on-os-labels: [ ubuntu-latest-m, windows-latest-l ]
-    runs-on: [ self-hosted, ${ { matrix.runs-on-os-labels } } ]
+        runs-on-os-labels: [ "ubuntu-latest-m", "windows-latest-l" ]
+    runs-on: [ self-hosted, ${{ matrix.runs-on-os-labels }} ]
     env:
       NUPKG_OUTDIR: bin/Release/nugets
     steps:
@@ -45,8 +45,8 @@ jobs:
   discover-unit-test-projects:
     strategy:
       matrix:
-        runs-on-os-labels: [ ubuntu-latest-m, windows-latest-l ]
-    runs-on: [ self-hosted, ${ { matrix.runs-on-os-labels } } ]
+        runs-on-os-labels: [ "ubuntu-latest-m", "windows-latest-l" ]
+    runs-on: [ self-hosted, ${{ matrix.runs-on-os-labels }} ]
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -61,9 +61,9 @@ jobs:
 #  get-dapr-versions:
 #    strategy:
 #      matrix:
-#        runs-on-os-labels: [ ubuntu-latest-m, windows-latest-l ]
+#        runs-on-os-labels: [ "ubuntu-latest-m", "windows-latest-l" ]
 #    name: Build
-#    runs-on: [ self-hosted, ${ { matrix.runs-on-os-labels } } ]
+#    runs-on: [ self-hosted, ${{ matrix.runs-on-os-labels }} ]
 #    outputs:
 #      matrix_json: ${{ steps.compute.outputs.matrix_json }}
 #    steps:
@@ -92,9 +92,9 @@ jobs:
 #  compute-integration-matrix:
 #    strategy:
 #      matrix:
-#        runs-on-os-labels: [ ubuntu-latest-m, windows-latest-l ]
+#        runs-on-os-labels: [ "ubuntu-latest-m", "windows-latest-l" ]
 #    name: Build
-#    runs-on: [ self-hosted, ${ { matrix.runs-on-os-labels } } ]
+#    runs-on: [ self-hosted, ${{ matrix.runs-on-os-labels }} ]
 #    needs: [ discover-integration-v2-tests, get-dapr-versions ]
 #    outputs:
 #      matrix: ${{ steps.build.outputs.matrix }}
@@ -186,9 +186,9 @@ jobs:
   unit-tests:
     name: Unit Tests ${{ matrix.display-name }} / ${{ matrix.os }} - ${{ matrix.project }}
     needs: discover-unit-test-projects
-    runs-on: [ self-hosted, ${ { matrix.runs-on-os-labels } } ]
+    runs-on: [ self-hosted, ${{ matrix.runs-on-os-labels }} ]
     strategy:
-      runs-on-os-labels: [ ubuntu-latest-m, windows-latest-l ]
+      runs-on-os-labels: [ "ubuntu-latest-m", "windows-latest-l" ]
       fail-fast: false
       project: ${{ fromJson(needs.discover-unit-test-projects.outputs.matrix) }}
       include:
@@ -248,8 +248,8 @@ jobs:
   ci-unit-tests-gate:
     strategy:
       matrix:
-        runs-on-os-labels: [ ubuntu-latest-m, windows-latest-l ]
-    runs-on: [ self-hosted, ${ { matrix.runs-on-os-labels } } ]
+        runs-on-os-labels: [ "ubuntu-latest-m", "windows-latest-l" ]
+    runs-on: [ self-hosted, ${{ matrix.runs-on-os-labels }} ]
     needs: [ unit-tests ]
     steps:
       - name: "All unit tests passed"
@@ -260,8 +260,8 @@ jobs:
     needs: ['build', 'ci-unit-tests-gate']
     strategy:
       matrix:
-        runs-on-os-labels: [ ubuntu-latest-m, windows-latest-l ]
-    runs-on: [ self-hosted, ${ { matrix.runs-on-os-labels } } ]
+        runs-on-os-labels: [ "ubuntu-latest-m", "windows-latest-l" ]
+    runs-on: [ self-hosted, ${{ matrix.runs-on-os-labels }} ]
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -292,12 +292,12 @@ jobs:
     if: |
       startswith(github.ref, 'refs/tags/v') &&
       !(endsWith(github.ref, '-rc') || endsWith(github.ref, '-dev') || endsWith(github.ref, '-prerelease'))
-    runs-on: [ self-hosted, ${ { matrix.runs-on-os-labels } } ]
+    runs-on: [ self-hosted, ${{ matrix.runs-on-os-labels }} ]
     strategy:
       fail-fast: false
       matrix:
         package: ${{ fromJson(needs.discover.outputs.matrix) }}
-        runs-on-os-labels: [ ubuntu-latest-m, windows-latest-l ]
+        runs-on-os-labels: [ "ubuntu-latest-m", "windows-latest-l" ]
     steps:
       - name: Download release artifacts
         uses: actions/download-artifact@v4
