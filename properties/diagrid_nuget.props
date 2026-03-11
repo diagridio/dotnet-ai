@@ -18,7 +18,7 @@
     
     <!-- Icon for NuGet packages -->
     <ItemGroup>
-        <None Include="$(MSBuildThisFileDirectory)..\properties\logo.svg"/>
+        <None Include="$(MSBuildThisFileDirectory)..\properties\logo.png"/>
     </ItemGroup>
 
     <!-- Enable symbols package generation. https://docs.microsoft.com/nuget/create-packages/symbol-packages-snupkg -->
