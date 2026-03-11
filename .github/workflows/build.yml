@@ -302,12 +302,12 @@ jobs:
         with:
           user: ${{ secrets.NUGETORG_DIAGRID_USER }}
       - name: Setup .NET
-      uses: actions/setup-dotnet@v5
-      with:
-        dotnet-version: 10.0.x
-        dotnet-quality: 'ga'
-      env:
-        DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+          dotnet-quality: 'ga'
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
       - name: Publish ${{ matrix.package }} to NuGet
         run: |
           dotnet nuget push "${{ matrix.package }}" --skip-duplicate --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
