@@ -244,9 +244,6 @@ jobs:
           REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   ci-unit-tests-gate:
-    strategy:
-      matrix:
-        os: ${{ fromJson(vars.RUNNER_OS) }}
     runs-on: [ self-hosted, X64 ]
     needs: [ unit-tests ]
     steps:
@@ -256,9 +253,6 @@ jobs:
   discover:
     name: 'Discover Packages'
     needs: ['build', 'ci-unit-tests-gate']
-    strategy:
-      matrix:
-        os: ${{ fromJson(vars.RUNNER_OS) }}
     runs-on: [ self-hosted, X64 ]
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
@@ -295,7 +289,6 @@ jobs:
       fail-fast: false
       matrix:
         package: ${{ fromJson(needs.discover.outputs.matrix) }}
-        os: ${{ fromJson(vars.RUNNER_OS) }}
     steps:
       - name: Download release artifacts
         uses: actions/download-artifact@v4
