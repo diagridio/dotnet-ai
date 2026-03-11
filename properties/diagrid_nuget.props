@@ -3,7 +3,7 @@
         <Authors>Diagrid</Authors>
         <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
         <PackageLicenseExpression>BSL-1.1</PackageLicenseExpression>
-        <PackageLicenseUrl>https://github.com/diagridio/dotnet-ai/blob/master/LICENSE.md</PackageLicenseUrl>
+        <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
         <PackageProjectUrl>https://diagrid.io</PackageProjectUrl>
         <PackageIcon>images\logo.svg</PackageIcon>
         <PackageTags>diagrid dapr workflow ai</PackageTags>
@@ -11,6 +11,11 @@
         <RepositoryType>git</RepositoryType>
         <PackageOutputPath>$(RepoRoot)bin\$(Configuration)\nugets</PackageOutputPath>
     </PropertyGroup>
+    
+    <!-- LICENSE -->
+    <ItemGroup>
+        <None Include="LICENSE.md" Pack="true" PackagePath="" />
+    </ItemGroup>
     
     <!-- Icon for NuGet packages -->
     <ItemGroup>
