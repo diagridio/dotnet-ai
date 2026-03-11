@@ -27,6 +27,8 @@ jobs:
         with:
           dotnet-version: 10.0.x
           dotnet-quality: 'ga'
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
       - name: Restore dependendencies
         run: dotnet restore
       - name: Build
@@ -44,11 +46,11 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v4
       - id: set-matrix
         run: |
           # Find all csproj files matching the pattern recursively
-          PROJECTS=$(find test -name "Diagrid.*.Test.csproj" ! -name "*E2E*" | jq -R -s -c 'split("\n")[:-1]')
+          PROJECTS=$(find test -name "Diagrid.*.Test.csproj" !jq -R -s -c 'split("\n")[:-1]')
           echo "matrix=$PROJECTS" >> $GITHUB_OUTPUT
 
 # Don't need the following until we have integration tests in place
