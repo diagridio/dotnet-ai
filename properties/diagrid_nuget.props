@@ -4,7 +4,7 @@
         <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
         <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
         <PackageProjectUrl>https://diagrid.io</PackageProjectUrl>
-        <PackageIcon>images\logo.png</PackageIcon>
+        <PackageIcon>properties\logo.png</PackageIcon>
         <PackageTags>diagrid dapr workflow ai</PackageTags>
         <RepositoryUrl>https://github.com/diagridio/dotnet-ai</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
