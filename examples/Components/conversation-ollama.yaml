@@ -1,0 +1,11 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: conversation-ollama
+spec:
+  type: conversation.ollama
+  metadata:
+    - name: model
+      value: ministral-3:3b
+    - name: cacheTTL
+      value: 0
