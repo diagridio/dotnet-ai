@@ -1,0 +1,26 @@
+<Project>
+    <Import Project="$(MSBuildThisFileDirectory)..\properties\common.props"/>
+    <Import Project="$(MSBuildThisFileDirectory)..\properties\common_dotnet.props"/>
+    
+    <PropertyGroup>
+        <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+        <OutputPath>$(RepoRoot)bin\$(Configuration)\prod\$(MSBuildProjectName)</OutputPath>
+        <DefaultItemExcludes>$(DefaultItemExcludes);**\obj\**;**\bin\**</DefaultItemExcludes>
+
+        <DocumentationFile>$(OutputPath)$(MSBuildProjectName).xml</DocumentationFile>
+    </PropertyGroup>
+
+    <!-- Enable sourcelink -->
+    <PropertyGroup>
+        <PublishRepositoryUrl>true</PublishRepositoryUrl>
+        <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All"/>
+    </ItemGroup>
+
+    <!-- Enable Deterministic Builds for github actions -->
+    <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+        <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    </PropertyGroup>
+</Project>
