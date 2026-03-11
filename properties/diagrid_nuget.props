@@ -2,7 +2,6 @@
     <PropertyGroup>
         <Authors>Diagrid</Authors>
         <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
-        <PackageLicenseExpression>BSL-1.1</PackageLicenseExpression>
         <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
         <PackageProjectUrl>https://diagrid.io</PackageProjectUrl>
         <PackageIcon>images\logo.svg</PackageIcon>
