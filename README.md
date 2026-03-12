@@ -31,7 +31,7 @@ The following elaborates to show how agent responses can be coerced into typed a
 
 ```csharp
 // Register the record that the result will be deserialized into
-public seaded record StructuredAnswer(string Answer, double Confidence);
+public sealed record StructuredAnswer(string Answer, double Confidence);
 
 // Register the context used to deserialize the result - additional types need only be added with more `JsonSerializable` attributes
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
@@ -58,7 +58,7 @@ The following shows how Dapr Workflows can be registered alongside agent registr
 
 ```csharp
 // Register the record that the result will be deserialized into
-public seaded record StructuredAnswer(string Answer, double Confidence);
+public sealed record StructuredAnswer(string Answer, double Confidence);
 
 // Register the context used to deserialize the result - additional types need only be added with more `JsonSerializable` attributes
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
