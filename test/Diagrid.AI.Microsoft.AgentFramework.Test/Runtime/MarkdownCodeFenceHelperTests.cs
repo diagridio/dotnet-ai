@@ -2,7 +2,7 @@ using System.Reflection;
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace Diagrid.AI.Microsoft.AgentFramework.Test.Tests;
+namespace Diagrid.AI.Microsoft.AgentFramework.Test.Runtime;
 
 public sealed class MarkdownCodeFenceHelperTests
 {
