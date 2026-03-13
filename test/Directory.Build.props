@@ -8,6 +8,11 @@
         <IsPackable>false</IsPackable>
         <NoWarm>$(NoWarn);DAPR_CONVERSATION</NoWarm>
     </PropertyGroup>
+    
+    <!-- Work around missing apphost generation for net8/net9 in CI builds -->
+    <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0' Or '$(TargetFramework)' == 'net9.0'">
+        <UseAppHost>false</UseAppHost>
+    </PropertyGroup>
 
     <!-- Used to annotate PR with test failures: https://github.com/Tyrrrz/GitHubActionsTestLogger -->
     <ItemGroup>
