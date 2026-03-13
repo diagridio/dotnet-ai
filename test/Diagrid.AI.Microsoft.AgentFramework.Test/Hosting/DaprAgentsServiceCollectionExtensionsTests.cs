@@ -5,7 +5,7 @@ using Diagrid.AI.Microsoft.AgentFramework.Test.TestUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
-namespace Diagrid.AI.Microsoft.AgentFramework.Test.Tests;
+namespace Diagrid.AI.Microsoft.AgentFramework.Test.Hosting;
 
 public sealed class DaprAgentsServiceCollectionExtensionsTests
 {

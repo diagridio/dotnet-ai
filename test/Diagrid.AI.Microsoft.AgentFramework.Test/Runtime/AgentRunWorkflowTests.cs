@@ -1,7 +1,7 @@
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
 using Diagrid.AI.Microsoft.AgentFramework.Test.TestUtilities;
 
-namespace Diagrid.AI.Microsoft.AgentFramework.Test.Tests;
+namespace Diagrid.AI.Microsoft.AgentFramework.Test.Runtime;
 
 public sealed class AgentRunWorkflowTests
 {

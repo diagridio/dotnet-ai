@@ -5,7 +5,7 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace Diagrid.AI.Microsoft.AgentFramework.Test.Tests;
+namespace Diagrid.AI.Microsoft.AgentFramework.Test.Hosting;
 
 public sealed class DaprAgentInvokerExtensionsTests
 {
@@ -14,7 +14,7 @@ public sealed class DaprAgentInvokerExtensionsTests
     {
         var invoker = new FakeInvoker();
 
-        var response = await invoker.RunAgentAsync("alpha", message: "hello", chatClientKey: "key");
+        var response = await invoker.RunAgentAsync("alpha", message: "hello", chatClientKey: "key", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(response);
         Assert.NotNull(invoker.LastAgent);
@@ -27,7 +27,7 @@ public sealed class DaprAgentInvokerExtensionsTests
     {
         var invoker = new FakeInvoker();
 
-        var result = await invoker.RunAgentAndDeserializeAsync<TestPayload>("beta", NullLogger.Instance, message: "hi");
+        var result = await invoker.RunAgentAndDeserializeAsync<TestPayload>("beta", NullLogger.Instance, message: "hi", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
         Assert.Equal("from-invoker", result!.Value);
@@ -41,7 +41,7 @@ public sealed class DaprAgentInvokerExtensionsTests
     {
         var invoker = new FakeInvoker();
 
-        var result = await invoker.RunAgentAndDeserializeAsync<TestPayload, DaprAgentInvokerExtensionsTests>("gamma", message: "msg");
+        var result = await invoker.RunAgentAndDeserializeAsync<TestPayload, DaprAgentInvokerExtensionsTests>("gamma", message: "msg", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
         Assert.Equal("from-invoker", result!.Value);

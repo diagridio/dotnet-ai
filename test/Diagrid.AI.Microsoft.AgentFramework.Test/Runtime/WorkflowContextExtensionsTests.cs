@@ -2,7 +2,7 @@ using Diagrid.AI.Microsoft.AgentFramework.Runtime;
 using Diagrid.AI.Microsoft.AgentFramework.Test.TestUtilities;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace Diagrid.AI.Microsoft.AgentFramework.Test.Tests;
+namespace Diagrid.AI.Microsoft.AgentFramework.Test.Runtime;
 
 [Collection("AgentJsonResolver")]
 public sealed class WorkflowContextExtensionsTests
