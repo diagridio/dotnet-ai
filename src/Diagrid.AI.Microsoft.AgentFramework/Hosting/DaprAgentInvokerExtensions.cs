@@ -37,32 +37,32 @@ public static class DaprAgentInvokerExtensions
     }
 
     /// <summary>
-    /// Invokes an agent inside a workflow activity and returns the raw <see cref="AgentRunResponse"/>.
+    /// Invokes an agent inside a workflow activity and returns the raw <see cref="AgentResponse"/>.
     /// </summary>
     /// <param name="invoker">The agent invoker.</param>
     /// <param name="agentName">The agent name used during registration.</param>
     /// <param name="message">Optional user/system message.</param>
-    /// <param name="thread">Optional thread to use for conversation state.</param>
+    /// <param name="session">Optional session to use for conversation state.</param>
     /// <param name="options">Optional <see cref="AgentRunOptions"/> for invocation.</param>
     /// <param name="chatClientKey">Optional chat client key used during registration.</param>
     /// <param name="cancellationToken">Token to cancel the invocation.</param>
     /// <returns>The raw agent response.</returns>
-    public static Task<AgentRunResponse> RunAgentAsync(
+    public static Task<AgentResponse> RunAgentAsync(
         this IDaprAgentInvoker invoker,
         string agentName,
         string? message = null,
-        AgentThread? thread = null,
+        AgentSession? session = null,
         AgentRunOptions? options = null,
         string? chatClientKey = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(invoker);
         var agent = GetAgent(invoker, agentName, chatClientKey);
-        return invoker.RunAgentAsync(agent, message, thread, options, cancellationToken);
+        return invoker.RunAgentAsync(agent, message, session, options, cancellationToken);
     }
 
     /// <summary>
-    /// Invokes an agent inside a workflow activity and deserializes the response <see cref="AgentRunResponse.Text"/> to
+    /// Invokes an agent inside a workflow activity and deserializes the response <see cref="AgentResponse.Text"/> to
     /// <typeparamref name="T"/> using a source-generated <see cref="System.Text.Json.Serialization.JsonSerializerContext"/>.
     /// </summary>
     /// <typeparam name="T">The target type to deserialize.</typeparam>
@@ -70,7 +70,7 @@ public static class DaprAgentInvokerExtensions
     /// <param name="agentName">The agent name used during registration.</param>
     /// <param name="logger">Optional tool for logging.</param>
     /// <param name="message">Optional user/system message.</param>
-    /// <param name="thread">Optional thread to use for conversation state.</param>
+    /// <param name="session">Optional session to use for conversation state.</param>
     /// <param name="options">Optional <see cref="AgentRunOptions"/> for invocation.</param>
     /// <param name="chatClientKey">Optional chat client key used during registration.</param>
     /// <param name="cancellationToken">Token to cancel the invocation.</param>
@@ -80,7 +80,7 @@ public static class DaprAgentInvokerExtensions
         string agentName,
         ILogger logger,
         string? message = null,
-        AgentThread? thread = null,
+        AgentSession? session = null,
         AgentRunOptions? options = null,
         string? chatClientKey = null,
         CancellationToken cancellationToken = default)
@@ -91,20 +91,20 @@ public static class DaprAgentInvokerExtensions
             agent,
             logger,
             message,
-            thread,
+            session,
             options,
             cancellationToken);
     }
 
     /// <summary>
-    /// Invokes an agent inside a workflow activity and deserializes the response <see cref="AgentRunResponse.Text"/> to
+    /// Invokes an agent inside a workflow activity and deserializes the response <see cref="AgentResponse.Text"/> to
     /// <typeparamref name="T"/> using a source-generated <see cref="System.Text.Json.Serialization.JsonSerializerContext"/>.
     /// </summary>
     /// <typeparam name="T">The target type to deserialize.</typeparam>
     /// <param name="invoker">The agent invoker.</param>
     /// <param name="agentName">The agent name used during registration.</param>
     /// <param name="message">Optional user/system message.</param>
-    /// <param name="thread">Optional thread to use for conversation state.</param>
+    /// <param name="session">Optional session to use for conversation state.</param>
     /// <param name="options">Optional <see cref="AgentRunOptions"/> for invocation.</param>
     /// <param name="chatClientKey">Optional chat client key used during registration.</param>
     /// <param name="cancellationToken">Token to cancel the invocation.</param>
@@ -113,7 +113,7 @@ public static class DaprAgentInvokerExtensions
         this IDaprAgentInvoker invoker,
         string agentName,
         string? message = null,
-        AgentThread? thread = null,
+        AgentSession? session = null,
         AgentRunOptions? options = null,
         string? chatClientKey = null,
         CancellationToken cancellationToken = default)
@@ -123,13 +123,13 @@ public static class DaprAgentInvokerExtensions
         return invoker.RunAgentAndDeserializeAsync<T>(
             agent,
             message,
-            thread,
+            session,
             options,
             cancellationToken);
     }
 
     /// <summary>
-    /// Invokes an agent inside a workflow activity and deserializes the response <see cref="AgentRunResponse.Text"/> to
+    /// Invokes an agent inside a workflow activity and deserializes the response <see cref="AgentResponse.Text"/> to
     /// <typeparamref name="T"/> using a source-generated <see cref="System.Text.Json.Serialization.JsonSerializerContext"/>.
     /// </summary>
     /// <typeparam name="T">The target type to deserialize.</typeparam>
@@ -137,7 +137,7 @@ public static class DaprAgentInvokerExtensions
     /// <param name="invoker">The agent invoker.</param>
     /// <param name="agentName">The agent name used during registration.</param>
     /// <param name="message">Optional user/system message.</param>
-    /// <param name="thread">Optional thread to use for conversation state.</param>
+    /// <param name="session">Optional session to use for conversation state.</param>
     /// <param name="options">Optional <see cref="AgentRunOptions"/> for invocation.</param>
     /// <param name="chatClientKey">Optional chat client key used during registration.</param>
     /// <param name="cancellationToken">Token to cancel the invocation.</param>
@@ -146,7 +146,7 @@ public static class DaprAgentInvokerExtensions
         this IDaprAgentInvoker invoker,
         string agentName,
         string? message = null,
-        AgentThread? thread = null,
+        AgentSession? session = null,
         AgentRunOptions? options = null,
         string? chatClientKey = null,
         CancellationToken cancellationToken = default)
@@ -156,7 +156,7 @@ public static class DaprAgentInvokerExtensions
         return invoker.RunAgentAndDeserializeAsync<T, TCategory>(
             agent,
             message,
-            thread,
+            session,
             options,
             cancellationToken);
     }
