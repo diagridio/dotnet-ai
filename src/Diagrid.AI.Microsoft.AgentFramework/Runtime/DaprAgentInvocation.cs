@@ -19,12 +19,12 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 /// </summary>
 /// <param name="AgentName">The name of the invoked agent.</param>
 /// <param name="Message">The message being sent to the activity.</param>
-/// <param name="Thread">The current agent thread.</param>
+/// <param name="Session">The current agent session.</param>
 /// <param name="Options">Options relevant to performing the agent run operation.</param>
 public sealed record DaprAgentInvocation(
     string AgentName,
     string? Message,
-    AgentThread? Thread,
+    AgentSession? Session,
     AgentRunOptions? Options)
 {
     /// <summary>

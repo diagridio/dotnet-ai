@@ -32,10 +32,10 @@ public sealed partial class DaprAgentInvoker(DaprWorkflowClient workflowClient, 
     }
 
     /// <inheritdoc />
-    public async Task<AgentRunResponse> RunAgentAsync(
+    public async Task<AgentResponse> RunAgentAsync(
         IDaprAIAgent agent,
         string? message = null,
-        AgentThread? thread = null,
+        AgentSession? session = null,
         AgentRunOptions? options = null,
         CancellationToken cancellationToken = default) =>
         await RunAgentAsyncCore(
@@ -43,7 +43,7 @@ public sealed partial class DaprAgentInvoker(DaprWorkflowClient workflowClient, 
             loggerFactory.CreateLogger<DaprAgentInvoker>(),
             GetChatClientKey(agent),
             message,
-            thread,
+            session,
             options,
             cancellationToken).ConfigureAwait(false);
 
@@ -52,7 +52,7 @@ public sealed partial class DaprAgentInvoker(DaprWorkflowClient workflowClient, 
         IDaprAIAgent agent,
         ILogger logger,
         string? message = null,
-        AgentThread? thread = null,
+        AgentSession? session = null,
         AgentRunOptions? options = null,
         CancellationToken cancellationToken = default)
     {
@@ -63,7 +63,7 @@ public sealed partial class DaprAgentInvoker(DaprWorkflowClient workflowClient, 
             logger,
             GetChatClientKey(agent),
             message,
-            thread,
+            session,
             options,
             cancellationToken).ConfigureAwait(false);
 
@@ -87,29 +87,29 @@ public sealed partial class DaprAgentInvoker(DaprWorkflowClient workflowClient, 
     public Task<T?> RunAgentAndDeserializeAsync<T>(
         IDaprAIAgent agent,
         string? message = null,
-        AgentThread? thread = null,
+        AgentSession? session = null,
         AgentRunOptions? options = null,
         CancellationToken cancellationToken = default) =>
-        RunAgentAndDeserializeAsync<T>(agent, loggerFactory.CreateLogger<DaprAgentInvoker>(), message, thread, options, cancellationToken);
+        RunAgentAndDeserializeAsync<T>(agent, loggerFactory.CreateLogger<DaprAgentInvoker>(), message, session, options, cancellationToken);
 
     /// <inheritdoc />
     public Task<T?> RunAgentAndDeserializeAsync<T, TCategory>(
         IDaprAIAgent agent,
         string? message = null,
-        AgentThread? thread = null,
+        AgentSession? session = null,
         AgentRunOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         var logger = loggerFactory.CreateLogger<TCategory>();
-        return RunAgentAndDeserializeAsync<T>(agent, logger, message, thread, options, cancellationToken);
+        return RunAgentAndDeserializeAsync<T>(agent, logger, message, session, options, cancellationToken);
     }
 
-    private async Task<AgentRunResponse> RunAgentAsyncCore(
+    private async Task<AgentResponse> RunAgentAsyncCore(
         IDaprAIAgent agent,
         ILogger logger,
         string? chatClientKey,
         string? message,
-        AgentThread? thread,
+        AgentSession? session,
         AgentRunOptions? options,
         CancellationToken cancellationToken)
     {
@@ -117,10 +117,10 @@ public sealed partial class DaprAgentInvoker(DaprWorkflowClient workflowClient, 
         ArgumentNullException.ThrowIfNull(logger);
 
         var messageLength = message?.Length ?? 0;
-        LogAgentRunning(logger, agent.Name, chatClientKey, messageLength, thread is not null, options is not null);
+        LogAgentRunning(logger, agent.Name, chatClientKey, messageLength, session is not null, options is not null);
         LogAgentRunningDebug(logger, agent.Name, message);
 
-        var invocation = new DaprAgentInvocation(agent.Name, message, thread, options)
+        var invocation = new DaprAgentInvocation(agent.Name, message, session, options)
         {
             ChatClientKey = chatClientKey,
         };
@@ -143,7 +143,7 @@ public sealed partial class DaprAgentInvoker(DaprWorkflowClient workflowClient, 
                 $"{failure?.ErrorMessage}");
         }
 
-        var response = state.ReadOutputAs<AgentRunResponse>() ??
+        var response = state.ReadOutputAs<AgentResponse>() ??
                        throw new InvalidOperationException($"Agent workflow '{instanceId}' completed without a response.");
         var responseLength = response.Text?.Length ?? 0;
         LogAgentResponseInfo(logger, agent.Name, instanceId, responseLength);
@@ -155,13 +155,13 @@ public sealed partial class DaprAgentInvoker(DaprWorkflowClient workflowClient, 
         agent is DaprAIAgent daprAgent ? daprAgent.ChatClientKey : null;
 
     [LoggerMessage(LogLevel.Information,
-        "Running agent '{AgentName}' (chat client key '{ChatClientKey}', message length {MessageLength}, has thread {HasThread}, has options {HasOptions})")]
+        "Running agent '{AgentName}' (chat client key '{ChatClientKey}', message length {MessageLength}, has session {HasSession}, has options {HasOptions})")]
     private static partial void LogAgentRunning(
         ILogger logger,
         string agentName,
         string? chatClientKey,
         int messageLength,
-        bool hasThread,
+        bool hasSession,
         bool hasOptions);
 
     [LoggerMessage(LogLevel.Debug, "Running agent '{AgentName}' with message '{Message}'")]

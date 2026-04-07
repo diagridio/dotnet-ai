@@ -30,7 +30,7 @@ internal static class RouterWorkflowAgentFactory
         ArgumentNullException.ThrowIfNull(descriptor);
 
         var chatClient = services.GetRequiredKeyedService<IChatClient>(descriptor.ConversationComponentName);
-        var innerAgent = chatClient.CreateAIAgent(
+        var innerAgent = chatClient.AsAIAgent(
             instructions: descriptor.Prompt,
             name: descriptor.Name,
             description: descriptor.Purpose);
@@ -41,11 +41,11 @@ internal static class RouterWorkflowAgentFactory
         return innerAgent.AsBuilder()
             .Use(
                 (messages, _, _, _, ct) => RunWorkflowAsync(scopeFactory, loggerFactory, messages, ct),
-                (_, _, _, _, _) => System.Linq.AsyncEnumerable.Empty<AgentRunResponseUpdate>())
+                (_, _, _, _, _) => System.Linq.AsyncEnumerable.Empty<AgentResponseUpdate>())
             .Build(services);
     }
 
-    private static async Task<AgentRunResponse> RunWorkflowAsync(
+    private static async Task<AgentResponse> RunWorkflowAsync(
         IServiceScopeFactory scopeFactory,
         ILoggerFactory loggerFactory,
         IEnumerable<ChatMessage> messages,
@@ -130,10 +130,10 @@ internal static class RouterWorkflowAgentFactory
         throw new InvalidOperationException("Router workflow agent requires a non-empty input message.");
     }
 
-    private static AgentRunResponse BuildResponse(AgentRouterWorkflow.RoutingResult result)
+    private static AgentResponse BuildResponse(AgentRouterWorkflow.RoutingResult result)
     {
         var payload = JsonSerializer.Serialize(result, AgentRouterJsonContext.Default.RoutingResult);
-        return new AgentRunResponse(new ChatMessage(ChatRole.Assistant, payload));
+        return new AgentResponse(new ChatMessage(ChatRole.Assistant, payload));
     }
 
     private static AgentRouterWorkflow.RoutingResult CreateFailure(string error)

@@ -44,35 +44,35 @@ public static partial class WorkflowContextExtensions
         new DaprAIAgent(agentName, chatClientKey);
 
     /// <summary>
-    /// Invokes an agent insides an activity and returns the raw <see cref="AgentRunResponse"/>.
+    /// Invokes an agent insides an activity and returns the raw <see cref="AgentResponse"/>.
     /// </summary>
     /// <param name="context">The current workflow context.</param>
     /// <param name="agent">The <see cref="AIAgent"/> reference.</param>
     /// <param name="message">Optional user/system message.</param>
-    /// <param name="thread">Optional thread to use for conversation state.</param>
+    /// <param name="session">Optional session to use for conversation state.</param>
     /// <param name="options">Optional <see cref="AgentRunOptions"/> for invocation.</param>
     /// <returns>The raw agent response.</returns>
-    public static Task<AgentRunResponse> RunAgentAsync(
+    public static Task<AgentResponse> RunAgentAsync(
         this WorkflowContext context,
         IDaprAIAgent agent,
         string? message = null,
-        AgentThread? thread = null,
+        AgentSession? session = null,
         AgentRunOptions? options = null) =>
-        context.CallActivityAsync<AgentRunResponse>(nameof(InvokeAgentActivity),
-            new DaprAgentInvocation(agent.Name, message, thread, options)
+        context.CallActivityAsync<AgentResponse>(nameof(InvokeAgentActivity),
+            new DaprAgentInvocation(agent.Name, message, session, options)
             {
                 ChatClientKey = GetChatClientKey(agent),
             });
 
     /// <summary>
-    /// Invokes an agent inside an activity and deserializes the response <see cref="AgentRunResponse.Text"/> to
+    /// Invokes an agent inside an activity and deserializes the response <see cref="AgentResponse.Text"/> to
     /// <typeparamref name="T"/> using a source-generated <see cref="JsonSerializerContext"/>.
     /// </summary>
     /// <typeparam name="T">The target type to deserialize.</typeparam>
     /// <param name="context">The current workflow context.</param>
     /// <param name="agent">The <see cref="AIAgent"/> reference.</param>
     /// <param name="message">Optional user/system message.</param>
-    /// <param name="thread">Optional thread to use for conversation state.</param>
+    /// <param name="session">Optional session to use for conversation state.</param>
     /// <param name="options">Optional <see cref="AgentRunOptions"/> for invocation.</param>
     /// <param name="logger">Optional tool for logging.</param>
     /// <returns>The typed result, or <c>null</c> when no text was returned.</returns>
@@ -81,7 +81,7 @@ public static partial class WorkflowContextExtensions
         IDaprAIAgent agent,
         ILogger? logger = null,
         string? message = null,
-        AgentThread? thread = null,
+        AgentSession? session = null,
         AgentRunOptions? options = null)
     {
         logger ??= NullLogger.Instance;
@@ -89,7 +89,7 @@ public static partial class WorkflowContextExtensions
         var messageLength = message?.Length ?? 0;
         LogAgentRunning(logger, agent.Name, messageLength);
         LogAgentRunningDebug(logger, agent.Name, message);
-        var resp = await context.RunAgentAsync(agent, message, thread, options);
+        var resp = await context.RunAgentAsync(agent, message, session, options);
         var responseLength = resp.Text?.Length ?? 0;
         LogAgentResponseInfo(logger, agent.Name, responseLength);
         LogAgentResponseDebug(logger, agent.Name, resp.Text);

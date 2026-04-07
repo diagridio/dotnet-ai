@@ -28,30 +28,30 @@ public interface IDaprAgentInvoker
     IDaprAIAgent GetAgent(string agentName);
 
     /// <summary>
-    /// Invokes an agent inside a workflow activity and returns the raw <see cref="AgentRunResponse"/>.
+    /// Invokes an agent inside a workflow activity and returns the raw <see cref="AgentResponse"/>.
     /// </summary>
     /// <param name="agent">The agent reference.</param>
     /// <param name="message">Optional user/system message.</param>
-    /// <param name="thread">Optional thread to use for conversation state.</param>
+    /// <param name="session">Optional session to use for conversation state.</param>
     /// <param name="options">Optional <see cref="AgentRunOptions"/> for invocation.</param>
     /// <param name="cancellationToken">Token to cancel the invocation.</param>
     /// <returns>The raw agent response.</returns>
-    Task<AgentRunResponse> RunAgentAsync(
+    Task<AgentResponse> RunAgentAsync(
         IDaprAIAgent agent,
         string? message = null,
-        AgentThread? thread = null,
+        AgentSession? session = null,
         AgentRunOptions? options = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Invokes an agent inside a workflow activity and deserializes the response <see cref="AgentRunResponse.Text"/> to
+    /// Invokes an agent inside a workflow activity and deserializes the response <see cref="AgentResponse.Text"/> to
     /// <typeparamref name="T"/> using a source-generated <see cref="System.Text.Json.Serialization.JsonSerializerContext"/>.
     /// </summary>
     /// <typeparam name="T">The target type to deserialize.</typeparam>
     /// <param name="agent">The agent reference.</param>
     /// <param name="logger">Optional tool for logging.</param>
     /// <param name="message">Optional user/system message.</param>
-    /// <param name="thread">Optional thread to use for conversation state.</param>
+    /// <param name="session">Optional session to use for conversation state.</param>
     /// <param name="options">Optional <see cref="AgentRunOptions"/> for invocation.</param>
     /// <param name="cancellationToken">Token to cancel the invocation.</param>
     /// <returns>The typed result, or <c>null</c> when no text was returned.</returns>
@@ -59,44 +59,44 @@ public interface IDaprAgentInvoker
         IDaprAIAgent agent,
         ILogger logger,
         string? message = null,
-        AgentThread? thread = null,
+        AgentSession? session = null,
         AgentRunOptions? options = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Invokes an agent inside a workflow activity and deserializes the response <see cref="AgentRunResponse.Text"/> to
+    /// Invokes an agent inside a workflow activity and deserializes the response <see cref="AgentResponse.Text"/> to
     /// <typeparamref name="T"/> using a source-generated <see cref="System.Text.Json.Serialization.JsonSerializerContext"/>.
     /// </summary>
     /// <typeparam name="T">The target type to deserialize.</typeparam>
     /// <param name="agent">The agent reference.</param>
     /// <param name="message">Optional user/system message.</param>
-    /// <param name="thread">Optional thread to use for conversation state.</param>
+    /// <param name="session">Optional session to use for conversation state.</param>
     /// <param name="options">Optional <see cref="AgentRunOptions"/> for invocation.</param>
     /// <param name="cancellationToken">Token to cancel the invocation.</param>
     /// <returns>The typed result, or <c>null</c> when no text was returned.</returns>
     Task<T?> RunAgentAndDeserializeAsync<T>(
         IDaprAIAgent agent,
         string? message = null,
-        AgentThread? thread = null,
+        AgentSession? session = null,
         AgentRunOptions? options = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Invokes an agent inside a workflow activity and deserializes the response <see cref="AgentRunResponse.Text"/> to
+    /// Invokes an agent inside a workflow activity and deserializes the response <see cref="AgentResponse.Text"/> to
     /// <typeparamref name="T"/> using a source-generated <see cref="System.Text.Json.Serialization.JsonSerializerContext"/>.
     /// </summary>
     /// <typeparam name="T">The target type to deserialize.</typeparam>
     /// <typeparam name="TCategory">The logger category type.</typeparam>
     /// <param name="agent">The agent reference.</param>
     /// <param name="message">Optional user/system message.</param>
-    /// <param name="thread">Optional thread to use for conversation state.</param>
+    /// <param name="session">Optional session to use for conversation state.</param>
     /// <param name="options">Optional <see cref="AgentRunOptions"/> for invocation.</param>
     /// <param name="cancellationToken">Token to cancel the invocation.</param>
     /// <returns>The typed result, or <c>null</c> when no text was returned.</returns>
     Task<T?> RunAgentAndDeserializeAsync<T, TCategory>(
         IDaprAIAgent agent,
         string? message = null,
-        AgentThread? thread = null,
+        AgentSession? session = null,
         AgentRunOptions? options = null,
         CancellationToken cancellationToken = default);
 }

@@ -4,6 +4,7 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <IsPackable>false</IsPackable>
+        <NoWarn>$(NoWarn);xUnit1051</NoWarn>
     </PropertyGroup>
 
     <ItemGroup>
@@ -21,6 +22,7 @@
 
     <ItemGroup>
         <Using Include="Xunit"/>
+        <Using Include="Diagrid.AI.Microsoft.AgentFramework.Test.TestUtilities"/>
     </ItemGroup>
 
     <ItemGroup>

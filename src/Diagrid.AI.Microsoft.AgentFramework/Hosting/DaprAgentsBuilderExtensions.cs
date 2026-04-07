@@ -163,7 +163,7 @@ public static class DaprAgentsBuilderExtensions
         return builder.WithAgent(
             agentName,
             conversationComponentName,
-            chat => chat.CreateAIAgent(instructions: instructions, name: agentName, description: description),
+            chat => chat.AsAIAgent(instructions: instructions, name: agentName, description: description),
             configure,
             serviceLifetime);
     }
