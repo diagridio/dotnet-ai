@@ -54,7 +54,7 @@ public sealed class DaprAgentInvokerExtensionsTests
 
         public IDaprAIAgent GetAgent(string agentName) => new TestAgentReference(agentName);
 
-        public Task<AgentRunResponse> RunAgentAsync(IDaprAIAgent agent, string? message = null, AgentThread? thread = null,
+        public Task<AgentResponse> RunAgentAsync(IDaprAIAgent agent, string? message = null, AgentSession? session = null,
             AgentRunOptions? options = null, CancellationToken cancellationToken = default)
         {
             LastAgent = agent;
@@ -63,7 +63,7 @@ public sealed class DaprAgentInvokerExtensionsTests
         }
 
         public Task<T?> RunAgentAndDeserializeAsync<T>(IDaprAIAgent agent, ILogger logger,
-            string? message = null, AgentThread? thread = null, AgentRunOptions? options = null,
+            string? message = null, AgentSession? session = null, AgentRunOptions? options = null,
             CancellationToken cancellationToken = default)
         {
             LastAgent = agent;
@@ -72,7 +72,7 @@ public sealed class DaprAgentInvokerExtensionsTests
             return Task.FromResult((T?)payload);
         }
 
-        public Task<T?> RunAgentAndDeserializeAsync<T>(IDaprAIAgent agent, string? message = null, AgentThread? thread = null,
+        public Task<T?> RunAgentAndDeserializeAsync<T>(IDaprAIAgent agent, string? message = null, AgentSession? session = null,
             AgentRunOptions? options = null, CancellationToken cancellationToken = default)
         {
             LastAgent = agent;
@@ -82,7 +82,7 @@ public sealed class DaprAgentInvokerExtensionsTests
         }
 
         public Task<T?> RunAgentAndDeserializeAsync<T, TCategory>(IDaprAIAgent agent, string? message = null,
-            AgentThread? thread = null, AgentRunOptions? options = null, CancellationToken cancellationToken = default)
+            AgentSession? session = null, AgentRunOptions? options = null, CancellationToken cancellationToken = default)
         {
             LastAgent = agent;
             LastMessage = message;

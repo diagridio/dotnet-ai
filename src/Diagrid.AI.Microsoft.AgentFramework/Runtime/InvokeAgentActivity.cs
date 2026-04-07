@@ -26,10 +26,10 @@ public sealed partial class InvokeAgentActivity(
     DaprWorkflowClient client,
     IServiceProvider services,
     ILogger<InvokeAgentActivity> logger,
-    IDaprAgentContextAccessor contextAccessor) : WorkflowActivity<DaprAgentInvocation, AgentRunResponse>
+    IDaprAgentContextAccessor contextAccessor) : WorkflowActivity<DaprAgentInvocation, AgentResponse>
 {
     /// <inheritdoc />
-    public override async Task<AgentRunResponse> RunAsync(WorkflowActivityContext context, DaprAgentInvocation input)
+    public override async Task<AgentResponse> RunAsync(WorkflowActivityContext context, DaprAgentInvocation input)
     {
         // Resolve the registry and agent lazily
         var agent = registry.Get(input.AgentName, input.ChatClientKey, services);
@@ -43,12 +43,12 @@ public sealed partial class InvokeAgentActivity(
             LogAgentInvocationInfo(
                 input.AgentName,
                 message.Length,
-                input.Thread is not null,
+                input.Session is not null,
                 input.Options is not null);
-            LogAgentInvocationDebug(input.AgentName, message, input.Thread, input.Options);
+            LogAgentInvocationDebug(input.AgentName, message, input.Session, input.Options);
             return await agent.RunAsync(
                 message: message,
-                thread: input.Thread,
+                session: input.Session,
                 options: input.Options).ConfigureAwait(false);
         }
         finally
@@ -58,15 +58,15 @@ public sealed partial class InvokeAgentActivity(
     }
 
     [LoggerMessage(LogLevel.Information,
-        "Invoking agent {AgentName} with message length {MessageLength} (has thread {HasThread}, has options {HasOptions})")]
+        "Invoking agent {AgentName} with message length {MessageLength} (has session {HasSession}, has options {HasOptions})")]
     private partial void LogAgentInvocationInfo(
         string agentName,
         int messageLength,
-        bool hasThread,
+        bool hasSession,
         bool hasOptions);
 
     [LoggerMessage(LogLevel.Debug,
-        "Invoking agent {AgentName} with message '{Message}' on thread '{Thread}' with options '{Options}'")]
-    private partial void LogAgentInvocationDebug(string agentName, string message, AgentThread? thread,
+        "Invoking agent {AgentName} with message '{Message}' on session '{Session}' with options '{Options}'")]
+    private partial void LogAgentInvocationDebug(string agentName, string message, AgentSession? session,
         AgentRunOptions? options);
 }

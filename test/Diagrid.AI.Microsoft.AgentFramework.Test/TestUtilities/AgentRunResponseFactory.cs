@@ -7,9 +7,9 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Test.TestUtilities;
 
 public static class AgentRunResponseFactory
 {
-    public static AgentRunResponse CreateWithText(string text)
+    public static AgentResponse CreateWithText(string text)
     {
-        var responseType = typeof(AgentRunResponse);
+        var responseType = typeof(AgentResponse);
         var message = CreateChatMessage(text);
 
         var response = TryCreateWithMessages(responseType, message) ?? TryCreateDefault(responseType) ??
@@ -17,15 +17,15 @@ public static class AgentRunResponseFactory
 
         if (TrySetText(response, text))
         {
-            return (AgentRunResponse)response;
+            return (AgentResponse)response;
         }
 
         if (TrySetMessages(response, message))
         {
-            return (AgentRunResponse)response;
+            return (AgentResponse)response;
         }
 
-        return (AgentRunResponse)response;
+        return (AgentResponse)response;
     }
 
     private static object? TryCreateWithMessages(Type responseType, ChatMessage message)

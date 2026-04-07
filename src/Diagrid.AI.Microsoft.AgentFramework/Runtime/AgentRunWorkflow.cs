@@ -19,9 +19,9 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 /// Minimal workflow wrapper used when scheduling an agent invocation from outside a workflow (e.g., via
 /// <see cref="DaprWorkflowClient"/>.
 /// </summary>
-public sealed class AgentRunWorkflow : Workflow<DaprAgentInvocation, AgentRunResponse>
+public sealed class AgentRunWorkflow : Workflow<DaprAgentInvocation, AgentResponse>
 {
     /// <inheritdoc />
-    public override async Task<AgentRunResponse> RunAsync(WorkflowContext context, DaprAgentInvocation input) =>
-        await context.CallActivityAsync<AgentRunResponse>(nameof(InvokeAgentActivity), input);
+    public override async Task<AgentResponse> RunAsync(WorkflowContext context, DaprAgentInvocation input) =>
+        await context.CallActivityAsync<AgentResponse>(nameof(InvokeAgentActivity), input);
 }

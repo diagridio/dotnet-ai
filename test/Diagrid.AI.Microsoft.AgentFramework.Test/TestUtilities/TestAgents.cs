@@ -5,7 +5,7 @@ using Microsoft.Extensions.AI;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.Test.TestUtilities;
 
-internal sealed class TestAgentThread : AgentThread
+internal sealed class TestAgentThread : AgentSession
 {
     public TestAgentThread()
     {
@@ -14,25 +14,31 @@ internal sealed class TestAgentThread : AgentThread
 
 internal sealed class TestAIAgent : AIAgent
 {
-    private readonly Func<IEnumerable<ChatMessage>, AgentRunResponse> _responseFactory;
+    private readonly Func<IEnumerable<ChatMessage>, AgentResponse> _responseFactory;
 
-    public TestAIAgent(string name, Func<IEnumerable<ChatMessage>, AgentRunResponse>? responseFactory = null)
+    public TestAIAgent(string name, Func<IEnumerable<ChatMessage>, AgentResponse>? responseFactory = null)
     {
         SetAgentName(name);
-        _responseFactory = responseFactory ?? (_ => AgentRunResponseFactory.CreateWithText("{}"));
+        _responseFactory = responseFactory ?? new Func<IEnumerable<ChatMessage>, AgentResponse>(_ => AgentRunResponseFactory.CreateWithText("{}"));
     }
 
-    public override AgentThread GetNewThread() => new TestAgentThread();
+    protected override ValueTask<AgentSession> CreateSessionCoreAsync(CancellationToken cancellationToken) =>
+        ValueTask.FromResult<AgentSession>(new TestAgentThread());
 
-    public override AgentThread DeserializeThread(JsonElement jsonElement, JsonSerializerOptions? options) =>
-        new TestAgentThread();
+    protected override ValueTask<AgentSession> DeserializeSessionCoreAsync(JsonElement serializedState,
+        JsonSerializerOptions? jsonSerializerOptions, CancellationToken cancellationToken) =>
+        ValueTask.FromResult<AgentSession>(new TestAgentThread());
 
-    protected override Task<AgentRunResponse> RunCoreAsync(IEnumerable<ChatMessage> messages, AgentThread? thread,
+    protected override ValueTask<JsonElement> SerializeSessionCoreAsync(AgentSession session,
+        JsonSerializerOptions? jsonSerializerOptions, CancellationToken cancellationToken) =>
+        ValueTask.FromResult(JsonDocument.Parse("{}").RootElement);
+
+    protected override Task<AgentResponse> RunCoreAsync(IEnumerable<ChatMessage> messages, AgentSession? session,
         AgentRunOptions? options, CancellationToken cancellationToken) =>
         Task.FromResult(_responseFactory(messages));
 
-    protected override async IAsyncEnumerable<AgentRunResponseUpdate> RunCoreStreamingAsync(
-        IEnumerable<ChatMessage> messages, AgentThread? thread, AgentRunOptions? options,
+    protected override async IAsyncEnumerable<AgentResponseUpdate> RunCoreStreamingAsync(
+        IEnumerable<ChatMessage> messages, AgentSession? session, AgentRunOptions? options,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         await Task.CompletedTask;
