@@ -22,6 +22,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "unit", "unit", "{6FFCD6D7-2
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Diagrid.AI.Microsoft.AgentFramework.Test", "test\Diagrid.AI.Microsoft.AgentFramework.Test\Diagrid.AI.Microsoft.AgentFramework.Test.csproj", "{C2AC011E-8426-4EA8-BBC0-5D480D6F500D}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Diagrid.AI.Microsoft.AgentFramework.IntegrationTest", "test\Diagrid.AI.Microsoft.AgentFramework.IntegrationTest\Diagrid.AI.Microsoft.AgentFramework.IntegrationTest.csproj", "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -52,6 +54,10 @@ Global
 		{C2AC011E-8426-4EA8-BBC0-5D480D6F500D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C2AC011E-8426-4EA8-BBC0-5D480D6F500D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C2AC011E-8426-4EA8-BBC0-5D480D6F500D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{F6D075AE-92F2-48DE-8722-C7272DC3C1B3} = {EC533E2B-D00B-4B7E-A2B4-CB54DBB63950}
@@ -62,5 +68,6 @@ Global
 		{E3A93BB6-7C82-421E-B42C-3B15CACA05C1} = {37A966CB-73D3-402B-A6F8-CA71C6194F6A}
 		{6FFCD6D7-2663-44C7-B278-60B32112321D} = {37A966CB-73D3-402B-A6F8-CA71C6194F6A}
 		{C2AC011E-8426-4EA8-BBC0-5D480D6F500D} = {6FFCD6D7-2663-44C7-B278-60B32112321D}
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890} = {E3A93BB6-7C82-421E-B42C-3B15CACA05C1}
 	EndGlobalSection
 EndGlobal
