@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <IsPackable>false</IsPackable>
+        <UseAppHost>true</UseAppHost>
+        <OutputType>Exe</OutputType>
+        <!-- Suppress the DAPR_CONVERSATION obsolete warning from Dapr.AI packages. -->
+        <NoWarn>$(NoWarn);DAPR_CONVERSATION;xUnit1051</NoWarn>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="coverlet.collector" />
+        <PackageReference Include="Dapr.Testcontainers" />
+        <PackageReference Include="xunit.v3" />
+        <PackageReference Include="xunit.v3.extensibility.core" />
+        <PackageReference Include="xunit.runner.visualstudio">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Using Include="Xunit" />
+        <Using Include="Diagrid.AI.Microsoft.AgentFramework.IntegrationTest.Infrastructure" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\Diagrid.AI.Microsoft.AgentFramework\Diagrid.AI.Microsoft.AgentFramework.csproj" />
+    </ItemGroup>
+
+</Project>
