@@ -15,7 +15,7 @@ on:
   
 jobs:
   build:
-    runs-on: [ self-hosted, X64 ]
+    runs-on: "runs-on=${{ github.run_id }}/runner=2cpu-linux-x64/tag=dotnet-ci"
     env:
       NUPKG_OUTDIR: bin/Release/nugets
     steps:
@@ -48,7 +48,7 @@ jobs:
   
   discover-unit-test-projects:
     needs: ['build']
-    runs-on: [ self-hosted, X64 ]
+    runs-on: "runs-on=${{ github.run_id }}/runner=2cpu-linux-x64/tag=dotnet-ci"
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -188,7 +188,7 @@ jobs:
   unit-tests:
     name: Unit Tests ${{ matrix.display-name }} / ${{ matrix.os }} - ${{ matrix.project }}
     needs: ['build', 'discover-unit-test-projects']
-    runs-on: [ self-hosted, X64 ]
+    runs-on: "runs-on=${{ github.run_id }}/runner=2cpu-linux-x64/tag=dotnet-ci"
     strategy:
       fail-fast: false
       matrix:
@@ -250,7 +250,7 @@ jobs:
           REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   ci-unit-tests-gate:
-    runs-on: [ self-hosted, X64 ]
+    runs-on: "runs-on=${{ github.run_id }}/runner=2cpu-linux-x64/tag=dotnet-ci"
     needs: [ 'build', 'unit-tests' ]
     steps:
       - name: "All unit tests passed"
@@ -259,7 +259,7 @@ jobs:
   discover:
     name: 'Discover Packages'
     needs: ['build', 'ci-unit-tests-gate']
-    runs-on: [ self-hosted, X64 ]
+    runs-on: "runs-on=${{ github.run_id }}/runner=2cpu-linux-x64/tag=dotnet-ci"
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -290,7 +290,7 @@ jobs:
     if: |
       startswith(github.ref, 'refs/tags/v') &&
       !(endsWith(github.ref, '-rc') || endsWith(github.ref, '-dev') || endsWith(github.ref, '-prerelease'))
-    runs-on: [ self-hosted, X64 ]
+    runs-on: "runs-on=${{ github.run_id }}/runner=2cpu-linux-x64/spot=false/tag=dotnet-publish"
     strategy:
       fail-fast: false
       matrix:
