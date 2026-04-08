@@ -5,6 +5,7 @@
 using Dapr.Testcontainers.Common;
 using Dapr.Testcontainers.Common.Options;
 using Dapr.Testcontainers.Harnesses;
+using Dapr.Workflow;
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
 using Diagrid.AI.Microsoft.AgentFramework.Hosting;
 using System.Text.Json;
@@ -60,6 +61,17 @@ public sealed class DaprFixture : IAsyncLifetime
     /// </summary>
     public HttpClient Client { get; private set; } = null!;
 
+    /// <summary>
+    /// <see cref="DaprWorkflowClient"/> for scheduling and querying custom workflows directly.
+    /// </summary>
+    public DaprWorkflowClient WorkflowClient { get; private set; } = null!;
+
+    /// <summary>
+    /// <see cref="IDaprAgentContextAccessor"/> singleton — exposes the ambient context set
+    /// by <c>InvokeAgentActivity</c> while an agent is executing.
+    /// </summary>
+    public IDaprAgentContextAccessor ContextAccessor { get; private set; } = null!;
+
     // ── IAsyncLifetime ────────────────────────────────────────────────────────
 
     public async ValueTask InitializeAsync()
@@ -91,7 +103,9 @@ public sealed class DaprFixture : IAsyncLifetime
         _app = BuildTestApp(_harness.AppPort);
         await _app.StartAsync();
 
-        Invoker = _app.Services.GetRequiredService<IDaprAgentInvoker>();
+        Invoker         = _app.Services.GetRequiredService<IDaprAgentInvoker>();
+        WorkflowClient  = _app.Services.GetRequiredService<DaprWorkflowClient>();
+        ContextAccessor = _app.Services.GetRequiredService<IDaprAgentContextAccessor>();
         Client  = new HttpClient
         {
             BaseAddress = new Uri($"http://localhost:{_harness.AppPort}"),
@@ -142,11 +156,19 @@ public sealed class DaprFixture : IAsyncLifetime
         });
 
         builder.Services
-            .AddDaprAgents(opt =>
-            {
-                // Register source-generated serialization context for typed responses.
-                opt.AddContext(() => IntegrationTestJsonContext.Default);
-            })
+            .AddDaprAgents(
+                opt =>
+                {
+                    // Register source-generated serialization context for typed responses.
+                    opt.AddContext(() => IntegrationTestJsonContext.Default);
+                },
+                reg =>
+                {
+                    // Custom workflows for WorkflowContextExtensions integration tests.
+                    reg.RegisterWorkflow<EchoOrchestrationWorkflow>();
+                    reg.RegisterWorkflow<CapitalOrchestrationWorkflow>();
+                    reg.RegisterWorkflow<KeyedOrchestrationWorkflow>();
+                })
             // --- Agents for basic invocation tests ---
             .WithAgent(_ => new TestAIAgent("EchoAgent",
                 _ => AgentRunResponseFactory.CreateWithText("Hello from EchoAgent!")))
@@ -165,7 +187,18 @@ public sealed class DaprFixture : IAsyncLifetime
                     _ => AgentRunResponseFactory.CreateWithText("Alpha response")))
             .WithAgent("chat-key-beta",
                 _ => new TestAIAgent("BetaAgent",
-                    _ => AgentRunResponseFactory.CreateWithText("Beta response")));
+                    _ => AgentRunResponseFactory.CreateWithText("Beta response")))
+            // --- Context accessor test agent: embeds the current workflow instance ID in its response ---
+            .WithAgent(sp =>
+            {
+                var accessor = sp.GetRequiredService<IDaprAgentContextAccessor>();
+                return new TestAIAgent("ContextAgent",
+                    _ =>
+                    {
+                        var instanceId = accessor.Current?.CurrentWorkflowInstanceId ?? "null";
+                        return AgentRunResponseFactory.CreateWithText($"instanceId:{instanceId}");
+                    });
+            });
 
         var app = builder.Build();
 
