@@ -32,32 +32,32 @@ If you prefer different small models, update the component YAML files in `exampl
 
 ## Running the example
 
-From the `\examples\AI` directory, start the Dapr runtime:
+From the `\examples\` directory, start the Dapr runtime:
 
 ```sh
 dapr run --app-id agentrouterapp --dapr-grpc-port 50001 --dapr-http-port 3500 --resources-path "Components/"
 ```
 
-Then run the app from `\examples\AI\RouterDemo` in another terminal:
+Then run the app from `\examples\RouterDemo` in another terminal:
 
 ```sh
 dotnet run
 ```
 
-It listens on `http://localhost:5112`.
+It listens on `http://localhost:5041`.
 
 ## Try it out
 
 ### List available agents
 
 ```
-GET http://localhost:5112/agents
+GET http://localhost:5041/agents
 ```
 
 ### Route a request
 
 ```
-POST http://localhost:5112/route
+POST http://localhost:5041/route
 ```
 
 ```json

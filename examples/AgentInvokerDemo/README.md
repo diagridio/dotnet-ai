@@ -13,17 +13,17 @@ still runs inside Dapr Workflow activities under the hood.
 
 ## Running the example
 
-From the `\examples\AI` directory, start the Dapr runtime:
+From the `\examples\` directory, start the Dapr runtime:
 
 ```sh
 dapr run --app-id invokerapp --dapr-grpc-port 50001 --dapr-http-port 3500 --resources-path "Components/"
 ```
 
-Then run the app in another terminal with `dotnet run`. It listens on `http://localhost:5112`.
+Then run the app in another terminal with `dotnet run`. It listens on `http://localhost:5041`.
 
 ### Ask for a normal response
 
-Send a POST request to `http://localhost:5112/ask`:
+Send a POST request to `http://localhost:5041/ask`:
 
 ```json
 {
@@ -35,7 +35,7 @@ You should receive a JSON response containing the agent's text.
 
 ### Ask for a structured response
 
-Send a POST request to `http://localhost:5112/ask-typed`:
+Send a POST request to `http://localhost:5041/ask-typed`:
 
 ```json
 {
