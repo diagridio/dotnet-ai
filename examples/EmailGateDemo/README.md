@@ -9,7 +9,7 @@
 - [Ollama](https://ollama.com/) installed
 
 ## Running the example
-To run the sample locally, run this command in the `\examples\AI` directory to load the Dapr runtime:
+To run the sample locally, run this command in the `\examples\` directory to load the Dapr runtime:
 
 ```sh
 dapr run --app-id wfapp --dapr-grpc-port 50001 --dapr-http-port 3500 --resources-path "Components/"
@@ -18,12 +18,12 @@ dapr run --app-id wfapp --dapr-grpc-port 50001 --dapr-http-port 3500 --resources
 This will load the Conversation and State components into the Dapr runtime used by the Conversation and Workflow
 components of the demonstration.
 
-Next, run the application in another terminal window with `dotnet run`. It's currently configured to use port 5112 as
+Next, run the application in another terminal window with `dotnet run`. It's currently configured to use port 5041 as
 indicated above. It should start up and idle until you prompt it.
 
 ### Sending a legitimate email draft
 
-Using a tool that can submit HTTP requests, send a POST request to `http://localhost:5112/draft` with the 
+Using a tool that can submit HTTP requests, send a POST request to `http://localhost:5041/draft` with the 
 following body:
 
 ```json
@@ -53,7 +53,7 @@ similar to the following:
 > [Your Contact Information, if needed]'
 
 While it's running or even after it runs, you can retrieve the status of the workflow by sending a GET request 
-to http://localhost:5112/status/{instanceId} and populate the `instanceId` with the value returned from the previous 
+to http://localhost:5041/status/{instanceId} and populate the `instanceId` with the value returned from the previous 
 request.
 
 This should return a response containing the current status of the workflow. If the workflow has completed it may
@@ -73,7 +73,7 @@ look similar to, but with more up-to-date timestamp values.
 
 ### Sending a spam email
 
-Using a tool that can submit HTTP requests, send a POST request to `http://localhost:5112/draft` with the
+Using a tool that can submit HTTP requests, send a POST request to `http://localhost:5041/draft` with the
 following body:
 
 ```json
