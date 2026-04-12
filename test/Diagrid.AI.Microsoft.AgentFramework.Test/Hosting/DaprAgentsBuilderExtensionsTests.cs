@@ -22,7 +22,10 @@ public sealed class DaprAgentsBuilderExtensionsTests
         builder.WithAgent(registration);
 
         var registrations = services.Where(sd => sd.ServiceType == typeof(AgentFactoryRegistration)).ToList();
-        Assert.Contains(registrations, sd => ReferenceEquals(sd.ImplementationInstance, registration));
+        Assert.Contains(registrations, sd =>
+            sd.ImplementationInstance is AgentFactoryRegistration r &&
+            r.Name == registration.Name &&
+            r.ChatClientKey == registration.ChatClientKey);
     }
 
     [Fact]
