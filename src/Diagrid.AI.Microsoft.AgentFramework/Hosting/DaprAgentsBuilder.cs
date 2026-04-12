@@ -47,7 +47,17 @@ internal sealed class DaprAgentsBuilder(IServiceCollection services) : IAgentsBu
     {
         ArgumentNullException.ThrowIfNull(registration);
 
-        Services.AddSingleton(registration);
+        var original = registration.Factory;
+        var wrapped = registration with
+        {
+            Factory = sp =>
+            {
+                var agent = original(sp);
+                return agent.AsBuilder().UseToolActivityDispatch(sp).Build(sp);
+            }
+        };
+
+        Services.AddSingleton(wrapped);
         return this;
     }
 }

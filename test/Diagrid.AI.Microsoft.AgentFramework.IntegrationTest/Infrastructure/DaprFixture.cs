@@ -12,6 +12,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.IntegrationTest.Infrastructure;
@@ -72,6 +73,12 @@ public sealed class DaprFixture : IAsyncLifetime
     /// </summary>
     public IDaprAgentContextAccessor ContextAccessor { get; private set; } = null!;
 
+    /// <summary>
+    /// Tracks the number of times the <c>process_input</c> tool has been invoked by
+    /// <c>ToolInvocationAgent</c> during the test run.
+    /// </summary>
+    public ToolInvocationTracker ToolTracker { get; } = new ToolInvocationTracker();
+
     // ── IAsyncLifetime ────────────────────────────────────────────────────────
 
     public async ValueTask InitializeAsync()
@@ -100,7 +107,7 @@ public sealed class DaprFixture : IAsyncLifetime
 
         // 4. Build and start the minimal test application on the port the sidecar already
         //    knows about (BaseHarness assigned it via PortUtilities.GetAvailablePort()).
-        _app = BuildTestApp(_harness.AppPort);
+        _app = BuildTestApp(_harness.AppPort, ToolTracker);
         await _app.StartAsync();
 
         Invoker         = _app.Services.GetRequiredService<IDaprAgentInvoker>();
@@ -137,7 +144,7 @@ public sealed class DaprFixture : IAsyncLifetime
     /// <c>AgentInvokerDemo</c> example. All agents are <see cref="TestAIAgent"/> instances
     /// that return predetermined responses without calling a real LLM.
     /// </summary>
-    private static WebApplication BuildTestApp(int appPort)
+    private static WebApplication BuildTestApp(int appPort, ToolInvocationTracker toolTracker)
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions { EnvironmentName = "Testing" });
@@ -198,6 +205,24 @@ public sealed class DaprFixture : IAsyncLifetime
                         var instanceId = accessor.Current?.CurrentWorkflowInstanceId ?? "null";
                         return AgentRunResponseFactory.CreateWithText($"instanceId:{instanceId}");
                     });
+            })
+            // --- Tool invocation test agent: uses ToolCallMockChatClient + a real AIFunction tool ---
+            .WithAgent(_ =>
+            {
+                var processInputTool = AIFunctionFactory.Create(
+                    (string input) =>
+                    {
+                        toolTracker.RecordInvocation();
+                        return $"processed:{input}";
+                    },
+                    name: ToolCallMockChatClient.ToolName,
+                    description: "Processes the given input value and returns a result string.");
+
+                return new ToolCallMockChatClient()
+                    .AsAIAgent(
+                        instructions: "You are a test agent that calls tools.",
+                        name: "ToolInvocationAgent",
+                        tools: [processInputTool]);
             });
 
         var app = builder.Build();

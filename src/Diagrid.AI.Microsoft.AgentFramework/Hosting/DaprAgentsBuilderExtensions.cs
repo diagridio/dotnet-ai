@@ -168,6 +168,71 @@ public static class DaprAgentsBuilderExtensions
             serviceLifetime);
     }
 
+    /// <summary>
+    /// Registers a keyed <see cref="DaprChatClient"/> and a named agent that uses it, with a set of tools.
+    /// </summary>
+    /// <param name="builder">The agents builder.</param>
+    /// <param name="agentName">The explicit agent name used for registration.</param>
+    /// <param name="conversationComponentName">The name of the Dapr Conversation component.</param>
+    /// <param name="instructions">The system instructions/prompt for the agent.</param>
+    /// <param name="tools">The tools available to the agent. Each invocation will be dispatched as a separate workflow activity.</param>
+    /// <param name="configure">An optional <see cref="Action{T}"/> to configure the chat client options.</param>
+    /// <param name="serviceLifetime">The <see cref="ServiceLifetime"/> of the chat client service.</param>
+    /// <returns>The agents builder.</returns>
+    public static IAgentsBuilder WithAgent(
+        this IAgentsBuilder builder,
+        string agentName,
+        string conversationComponentName,
+        string instructions,
+        IReadOnlyList<AITool> tools,
+        Action<DaprChatClientOptions>? configure = null,
+        ServiceLifetime serviceLifetime = ServiceLifetime.Scoped)
+        => WithAgent(
+            builder,
+            agentName,
+            conversationComponentName,
+            instructions,
+            description: null,
+            tools,
+            configure,
+            serviceLifetime);
+
+    /// <summary>
+    /// Registers a keyed <see cref="DaprChatClient"/> and a named agent that uses it, with a set of tools.
+    /// </summary>
+    /// <param name="builder">The agents builder.</param>
+    /// <param name="agentName">The explicit agent name used for registration.</param>
+    /// <param name="conversationComponentName">The name of the Dapr Conversation component.</param>
+    /// <param name="instructions">The system instructions/prompt for the agent.</param>
+    /// <param name="description">The optional agent description.</param>
+    /// <param name="tools">The tools available to the agent. Each invocation will be dispatched as a separate workflow activity.</param>
+    /// <param name="configure">An optional <see cref="Action{T}"/> to configure the chat client options.</param>
+    /// <param name="serviceLifetime">The <see cref="ServiceLifetime"/> of the chat client service.</param>
+    /// <returns>The agents builder.</returns>
+    public static IAgentsBuilder WithAgent(
+        this IAgentsBuilder builder,
+        string agentName,
+        string conversationComponentName,
+        string instructions,
+        string? description,
+        IReadOnlyList<AITool> tools,
+        Action<DaprChatClientOptions>? configure = null,
+        ServiceLifetime serviceLifetime = ServiceLifetime.Scoped)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(conversationComponentName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(instructions);
+        ArgumentNullException.ThrowIfNull(tools);
+
+        return builder.WithAgent(
+            agentName,
+            conversationComponentName,
+            chat => chat.AsAIAgent(instructions: instructions, name: agentName, description: description, tools: [.. tools]),
+            configure,
+            serviceLifetime);
+    }
+
     private static IServiceCollection GetServices(IAgentsBuilder builder)
     {
         if (builder is DaprAgentsBuilder daprBuilder)

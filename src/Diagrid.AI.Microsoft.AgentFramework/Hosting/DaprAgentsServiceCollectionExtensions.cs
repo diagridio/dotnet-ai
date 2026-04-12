@@ -38,12 +38,15 @@ public static class DaprAgentsServiceCollectionExtensions
         services.AddSingleton<AgentRegistry>();
         services.AddSingleton<IDaprAgentInvoker, DaprAgentInvoker>();
         services.AddSingleton<IDaprAgentContextAccessor, DaprAgentContextAccessor>();
-        
+        services.AddSingleton<PendingFunctionRegistry>();
+
         // Activity + minimal wrapper workflow
         services.AddDaprWorkflow(opt =>
         {
             opt.RegisterWorkflow<AgentRunWorkflow>();
             opt.RegisterActivity<InvokeAgentActivity>();
+            opt.RegisterWorkflow<ToolRunWorkflow>();
+            opt.RegisterActivity<InvokeToolActivity>();
 
             // Register additional workflows and workflow activities here
             registrations?.Invoke(opt);
