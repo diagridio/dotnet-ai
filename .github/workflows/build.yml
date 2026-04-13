@@ -181,13 +181,16 @@ jobs:
         # dotnet test exits silently for MTP exe projects; use dotnet run instead and pass
         # MTP-native args (--report-trx, --results-directory) after the -- separator.
         run: |
-          dotnet run \
-          --project "${{ matrix.project }}" \
+          dotnet test "${{ matrix.project }}" \
           --configuration release \
           --framework ${{ matrix.framework }} \
-          -- \
-          --report-trx \
-          --results-directory "${{ github.workspace }}/TestResults"
+          --logger "trx;LogFilePrefix=${{ matrix.prefix }}" \
+          --logger "GitHubActions;report-warnings=false" \
+          --results-directory "${{ github.workspace }}/TestResults" \
+          /p:RuntimeIdentifier=linux-x64 \
+          /p:CollectCoverage=true \
+          /p:CoverletOutputFormat=opencover \
+          /p:GITHUB_ACTIONS=false
         timeout-minutes: 60
       - name: Check test failure in PR
         if: github.event_name == 'pull_request' && steps.tests.outcome != 'success'
