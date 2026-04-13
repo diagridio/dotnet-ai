@@ -184,7 +184,7 @@ jobs:
           dotnet test "${{ matrix.project }}"  \
           --configuration release \
           --framework ${{ matrix.framework }} \
-          --logger "trx;LogFilePrefix=net10" \
+          --logger "trx;LogFilePrefix=${{ matrix.prefix }}" \
           --logger "GitHubActions;report-warnings=false" \
           --results-directory "${{ github.workspace }}/TestResults" \
           /p:CollectCoverage=true \
