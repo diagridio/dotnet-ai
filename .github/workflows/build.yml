@@ -256,9 +256,75 @@ jobs:
       - name: "All unit tests passed"
         run: echo "All unit tests passed"
 
+  discover-integration-test-projects:
+    needs: ['build']
+    runs-on: "runs-on=${{ github.run_id }}/runner=2cpu-linux-x64/tag=dotnet-ci"
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: set-matrix
+        run: |
+          PROJECTS=$(find test -name "Diagrid.*.IntegrationTest.csproj" | jq -R -s -c 'split("\n")[:-1]')
+          echo "matrix=$PROJECTS" >> $GITHUB_OUTPUT
+
+  integration-tests:
+    name: Integration Tests - ${{ matrix.project }}
+    needs: ['build', 'discover-integration-test-projects']
+    runs-on: "runs-on=${{ github.run_id }}/runner=2cpu-linux-x64/tag=dotnet-ci"
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJson(needs.discover-integration-test-projects.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Parse release version
+        run: python3 ./.github/scripts/get_release_version.py
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+          dotnet-quality: 'ga'
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
+      - name: Test
+        id: tests
+        continue-on-error: true
+        run: |
+          dotnet test "${{ matrix.project }}"  \
+          --configuration release \
+          --logger "trx;LogFilePrefix=net10" \
+          --logger "GitHubActions;report-warnings=false" \
+          --results-directory "${{ github.workspace }}/TestResults" \
+          /p:CollectCoverage=true \
+          /p:CoverletOutputFormat=opencover \
+          /p:GITHUB_ACTIONS=false
+        timeout-minutes: 60
+      - name: Check test failure in PR
+        if: github.event_name == 'pull_request' && steps.tests.outcome != 'success'
+        run: exit 1
+      - name: Upload test coverage
+        uses: codecov/codecov-action@v1
+        with:
+          flags: net10.0
+      - name: Parse Trx files
+        uses: NasAmin/trx-parser@v0.2.0
+        id: trx-parser
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        with:
+          TRX_PATH: ${{ github.workspace }}/TestResults
+          REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  ci-integration-tests-gate:
+    runs-on: "runs-on=${{ github.run_id }}/runner=2cpu-linux-x64/tag=dotnet-ci"
+    needs: [ 'build', 'integration-tests' ]
+    steps:
+      - name: "All integration tests passed"
+        run: echo "All integration tests passed"
+
   discover:
     name: 'Discover Packages'
-    needs: ['build', 'ci-unit-tests-gate']
+    needs: ['build', 'ci-unit-tests-gate', 'ci-integration-tests-gate']
     runs-on: "runs-on=${{ github.run_id }}/runner=2cpu-linux-x64/tag=dotnet-ci"
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
