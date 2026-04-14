@@ -65,10 +65,11 @@ public static class DaprAgentsBuilderExtensions
         var services = GetServices(builder);
         services.AddDaprChatClient(conversationComponentName, conversationComponentName, configure, serviceLifetime);
 
-        return builder.WithAgent(conversationComponentName, serviceProvider =>
+        return builder.WithAgent(conversationComponentName, sp =>
         {
-            var chatClient = serviceProvider.GetRequiredKeyedService<IChatClient>(conversationComponentName);
-            return factory(chatClient);
+            var chatClient = sp.GetRequiredKeyedService<IChatClient>(conversationComponentName);
+            var agent = factory(chatClient);
+            return agent.AsBuilder().UseToolActivityDispatch(sp).Build(sp);
         });
     }
 
@@ -98,10 +99,11 @@ public static class DaprAgentsBuilderExtensions
         var services = GetServices(builder);
         services.AddDaprChatClient(conversationComponentName, conversationComponentName, configure, serviceLifetime);
 
-        return builder.WithAgent(new AgentFactoryRegistration(serviceProvider =>
+        return builder.WithAgent(new AgentFactoryRegistration(sp =>
         {
-            var chatClient = serviceProvider.GetRequiredKeyedService<IChatClient>(conversationComponentName);
-            return factory(chatClient);
+            var chatClient = sp.GetRequiredKeyedService<IChatClient>(conversationComponentName);
+            var agent = factory(chatClient);
+            return agent.AsBuilder().UseToolActivityDispatch(sp).Build(sp);
         })
         {
             Name = agentName,
