@@ -1,7 +1,6 @@
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
-using Diagrid.AI.Microsoft.AgentFramework.Test.TestUtilities;
 
-namespace Diagrid.AI.Microsoft.AgentFramework.Test.Tests;
+namespace Diagrid.AI.Microsoft.AgentFramework.Test.Abstractions;
 
 public sealed class DaprAgentsSerializationOptionsTests
 {
