@@ -67,7 +67,7 @@ public sealed partial class DaprAgentInvoker(DaprWorkflowClient workflowClient, 
             options,
             cancellationToken).ConfigureAwait(false);
 
-        var text = resp?.Text.Trim();
+        var text = resp.Text.Trim();
         if (string.IsNullOrWhiteSpace(text))
         {
             LogAgentEmptyResponse(logger);

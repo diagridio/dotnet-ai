@@ -46,7 +46,6 @@ internal sealed class DaprAgentsBuilder(IServiceCollection services) : IAgentsBu
     internal IAgentsBuilder WithAgentRegistration(AgentFactoryRegistration registration)
     {
         ArgumentNullException.ThrowIfNull(registration);
-
         Services.AddSingleton(registration);
         return this;
     }
