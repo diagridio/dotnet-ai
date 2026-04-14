@@ -44,7 +44,8 @@ public static partial class WorkflowContextExtensions
         new DaprAIAgent(agentName, chatClientKey);
 
     /// <summary>
-    /// Invokes an agent insides an activity and returns the raw <see cref="AgentResponse"/>.
+    /// Invokes an agent as a child workflow and returns the raw <see cref="AgentResponse"/>.
+    /// Each LLM call and each tool call within the agent run is a separate activity.
     /// </summary>
     /// <param name="context">The current workflow context.</param>
     /// <param name="agent">The <see cref="AIAgent"/> reference.</param>
@@ -58,7 +59,7 @@ public static partial class WorkflowContextExtensions
         string? message = null,
         AgentSession? session = null,
         AgentRunOptions? options = null) =>
-        context.CallActivityAsync<AgentResponse>(nameof(InvokeAgentActivity),
+        context.CallChildWorkflowAsync<AgentResponse>(nameof(AgentRunWorkflow),
             new DaprAgentInvocation(agent.Name, message, session, options)
             {
                 ChatClientKey = GetChatClientKey(agent),

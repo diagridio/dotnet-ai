@@ -34,19 +34,19 @@ public static class DaprAgentsServiceCollectionExtensions
         Action<DaprAgentsSerializationOptions>? configureSerialization = null,
         Action<WorkflowRuntimeOptions>? registrations = null)
     {
-        // Registry + ambient context accessor
+        // Registries + ambient context accessor
         services.AddSingleton<AgentRegistry>();
         services.AddSingleton<IDaprAgentInvoker, DaprAgentInvoker>();
         services.AddSingleton<IDaprAgentContextAccessor, DaprAgentContextAccessor>();
-        services.AddSingleton<PendingFunctionRegistry>();
+        services.AddSingleton<ChatClientRegistry>();
+        services.AddSingleton<ToolRegistry>();
 
-        // Activity + minimal wrapper workflow
+        // Workflow + activities: each LLM call and each tool call is a separate activity
         services.AddDaprWorkflow(opt =>
         {
             opt.RegisterWorkflow<AgentRunWorkflow>();
-            opt.RegisterActivity<InvokeAgentActivity>();
-            opt.RegisterWorkflow<ToolRunWorkflow>();
-            opt.RegisterActivity<InvokeToolActivity>();
+            opt.RegisterActivity<CallLlmActivity>();
+            opt.RegisterActivity<ExecuteToolActivity>();
 
             // Register additional workflows and workflow activities here
             registrations?.Invoke(opt);

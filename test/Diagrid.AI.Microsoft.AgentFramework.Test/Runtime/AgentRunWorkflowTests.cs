@@ -1,20 +1,28 @@
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
+using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.Test.Runtime;
 
 public sealed class AgentRunWorkflowTests
 {
     [Fact]
-    public async Task RunAsync_CallsInvokeAgentActivity()
+    public async Task RunAsync_CallsLlmActivity_AndReturnsFinalResponse()
     {
-        DaprAgentInvocation? captured = null;
         string? activityName = null;
 
-        var context = new TestWorkflowContext("workflow-1", (name, input) =>
+        // The workflow calls CallActivityAsync<CallLlmOutput>("CallLlmActivity", ...).
+        // CallLlmOutput is internal, so we build the return value via reflection.
+        var callLlmOutputType = typeof(AgentRunWorkflow).Assembly.GetType(
+            "Diagrid.AI.Microsoft.AgentFramework.Runtime.CallLlmOutput")!;
+        var output = Activator.CreateInstance(callLlmOutputType)!;
+        callLlmOutputType.GetProperty("IsFinal")!.SetValue(output, true);
+        callLlmOutputType.GetProperty("Text")!.SetValue(output, "done");
+
+        var context = new TestWorkflowContext("workflow-1", (name, _) =>
         {
             activityName = name;
-            captured = (DaprAgentInvocation)input!;
-            return Task.FromResult<object?>(AgentRunResponseFactory.CreateWithText("{}"));
+            return Task.FromResult<object?>(output);
         });
 
         var workflow = new AgentRunWorkflow();
@@ -23,10 +31,6 @@ public sealed class AgentRunWorkflowTests
         var result = await workflow.RunAsync(context, invocation);
 
         Assert.NotNull(result);
-        Assert.Equal(nameof(InvokeAgentActivity), activityName);
-        Assert.NotNull(captured);
-        Assert.Equal("alpha", captured!.AgentName);
-        Assert.Equal("message", captured.Message);
-        Assert.Equal("key", captured.ChatClientKey);
+        Assert.Equal("CallLlmActivity", activityName);
     }
 }

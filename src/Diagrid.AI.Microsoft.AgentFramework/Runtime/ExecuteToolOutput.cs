@@ -10,17 +10,15 @@
 // On the Change Date, this software will be available under
 // the Apache License, Version 2.0.
 
-using Dapr.Workflow;
-
 namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 
 /// <summary>
-/// Minimal workflow wrapper that executes a single tool invocation as its own Dapr Workflow activity.
-/// Mirrors the pattern of <see cref="AgentRunWorkflow"/> for agent invocations.
+/// Output payload from <see cref="ExecuteToolActivity"/>.
 /// </summary>
-internal sealed class ToolRunWorkflow : Workflow<ToolInvocationInput, string>
+internal sealed record ExecuteToolOutput
 {
-    /// <inheritdoc />
-    public override Task<string> RunAsync(WorkflowContext context, ToolInvocationInput input) =>
-        context.CallActivityAsync<string>(nameof(InvokeToolActivity), input);
+    public string CallId { get; init; } = "";
+    public string FunctionName { get; init; } = "";
+    public string ResultJson { get; init; } = "null";
+    public string? Error { get; init; }
 }
