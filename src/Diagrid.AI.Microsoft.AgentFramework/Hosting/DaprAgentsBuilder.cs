@@ -10,7 +10,7 @@
 // On the Change Date, this software will be available under
 // the Apache License, Version 2.0.
 
-using System.Reflection;
+using System.Runtime.CompilerServices;
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
 using Microsoft.Agents.AI;
@@ -74,15 +74,14 @@ internal sealed class DaprAgentsBuilder(IServiceCollection services) : IAgentsBu
     /// Traverses the <see cref="IChatClient"/> pipeline and returns the first client
     /// that is NOT a <see cref="FunctionInvokingChatClient"/>.
     /// This gives us the raw client suitable for single-turn LLM calls.
+    /// Uses <see cref="UnsafeAccessorAttribute"/> for AOT-safe access to the protected
+    /// <see cref="DelegatingChatClient.InnerClient"/> property.
     /// </summary>
     internal static IChatClient UnwrapFunctionInvoking(IChatClient client)
     {
-        var innerProp = typeof(DelegatingChatClient).GetProperty(
-            "InnerClient", BindingFlags.Instance | BindingFlags.NonPublic);
-
-        while (client is FunctionInvokingChatClient)
+        while (client is FunctionInvokingChatClient fic)
         {
-            var inner = innerProp?.GetValue(client) as IChatClient;
+            var inner = GetInnerClient(fic);
             if (inner is null || ReferenceEquals(inner, client))
                 break;
             client = inner;
@@ -90,4 +89,17 @@ internal sealed class DaprAgentsBuilder(IServiceCollection services) : IAgentsBu
 
         return client;
     }
+
+    /// <summary>
+    /// Extracts the <see cref="ChatOptions"/> from a <see cref="ChatClientAgent"/> using
+    /// <see cref="UnsafeAccessorAttribute"/> — AOT-safe, no runtime reflection.
+    /// </summary>
+    internal static ChatOptions? GetAgentChatOptions(ChatClientAgent agent) =>
+        GetChatOptions(agent);
+
+    [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "get_InnerClient")]
+    private static extern IChatClient GetInnerClient(DelegatingChatClient client);
+
+    [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "get_ChatOptions")]
+    private static extern ChatOptions? GetChatOptions(ChatClientAgent agent);
 }

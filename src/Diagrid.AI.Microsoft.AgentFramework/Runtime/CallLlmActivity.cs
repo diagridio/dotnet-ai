@@ -12,9 +12,6 @@
 
 using System.Text.Json;
 using Dapr.Workflow;
-using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
-using Diagrid.AI.Microsoft.AgentFramework.Hosting;
-using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
@@ -23,14 +20,10 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 /// <summary>
 /// Activity that performs a single LLM call. Each invocation is checkpointed by Dapr Workflows,
 /// so on crash recovery the result is replayed without re-executing the LLM call.
-/// For agents that are not <see cref="ChatClientAgent"/>-based (custom <see cref="AIAgent"/> subclasses),
-/// this activity falls back to running the full agent in a single activity call.
 /// </summary>
 internal sealed partial class CallLlmActivity(
     ChatClientRegistry chatClientRegistry,
     AgentRegistry agentRegistry,
-    IDaprAgentContextAccessor contextAccessor,
-    DaprWorkflowClient workflowClient,
     IServiceProvider serviceProvider,
     ILogger<CallLlmActivity> logger) : WorkflowActivity<CallLlmInput, CallLlmOutput>
 {
@@ -42,15 +35,12 @@ internal sealed partial class CallLlmActivity(
         {
             // Trigger lazy agent resolution — this runs the factory which
             // populates ChatClientRegistry as a side effect for ChatClientAgent types.
-            var agent = agentRegistry.Get(input.AgentName, input.ChatClientKey, serviceProvider);
-            config = chatClientRegistry.Get(input.AgentName);
-
-            // For non-ChatClientAgent agents (custom AIAgent subclasses), fall back to
-            // running the full agent in a single activity call.
-            if (config is null)
-            {
-                return await RunFullAgentFallbackAsync(agent, input, context.InstanceId).ConfigureAwait(false);
-            }
+            agentRegistry.Get(input.AgentName, input.ChatClientKey, serviceProvider);
+            config = chatClientRegistry.Get(input.AgentName)
+                ?? throw new InvalidOperationException(
+                    $"Agent '{input.AgentName}' did not register a chat client configuration. " +
+                    "Ensure the agent is a ChatClientAgent created via AsAIAgent() or registered " +
+                    "with explicit instructions and tools via the DaprAgentsBuilderExtensions overloads.");
         }
 
         LogLlmCallInfo(input.AgentName, input.Messages.Count);
@@ -69,34 +59,6 @@ internal sealed partial class CallLlmActivity(
         {
             LogLlmCallError(input.AgentName, ex.Message);
             throw;
-        }
-    }
-
-    /// <summary>
-    /// Fallback for non-ChatClientAgent agents: runs the full agent loop in a single activity.
-    /// </summary>
-    private async Task<CallLlmOutput> RunFullAgentFallbackAsync(AIAgent agent, CallLlmInput input, string instanceId)
-    {
-        LogAgentFallback(input.AgentName);
-
-        var messages = input.Messages
-            .Select(m => ConvertToChatMessage(m))
-            .ToList();
-
-        contextAccessor.Current = new DaprAgentContext(workflowClient, instanceId);
-        try
-        {
-            var response = await agent.RunAsync(messages).ConfigureAwait(false);
-
-            return new CallLlmOutput
-            {
-                IsFinal = true,
-                Text = response.Text
-            };
-        }
-        finally
-        {
-            contextAccessor.Current = null;
         }
     }
 
@@ -184,7 +146,7 @@ internal sealed partial class CallLlmActivity(
         {
             foreach (var fr in msg.FunctionResults)
             {
-                object? result = fr.ResultJson is not null and not "null"
+                object? result = fr.ResultJson is not null
                     ? JsonSerializer.Deserialize<JsonElement>(fr.ResultJson)
                     : null;
                 contents.Add(new FunctionResultContent(fr.CallId, result));
@@ -196,10 +158,6 @@ internal sealed partial class CallLlmActivity(
 
     [LoggerMessage(LogLevel.Information, "Calling LLM for agent '{AgentName}' with {MessageCount} messages")]
     private partial void LogLlmCallInfo(string agentName, int messageCount);
-
-    [LoggerMessage(LogLevel.Information,
-        "Agent '{AgentName}' is not ChatClientAgent-based; running full agent in single activity")]
-    private partial void LogAgentFallback(string agentName);
 
     [LoggerMessage(LogLevel.Error, "LLM call failed for agent '{AgentName}': {ErrorMessage}")]
     private partial void LogLlmCallError(string agentName, string errorMessage);

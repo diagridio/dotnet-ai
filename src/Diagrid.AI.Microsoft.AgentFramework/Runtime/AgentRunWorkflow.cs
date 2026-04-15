@@ -94,7 +94,7 @@ public sealed class AgentRunWorkflow : Workflow<DaprAgentInvocation, AgentRespon
             });
         }
 
-        throw new InvalidOperationException(
-            $"Agent '{input.AgentName}' exceeded the maximum of {MaxIterations} iterations.");
+        return new AgentResponse(new ChatMessage(ChatRole.Assistant,
+            $"Agent '{input.AgentName}' exceeded the maximum of {MaxIterations} iterations without producing a final response."));
     }
 }

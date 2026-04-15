@@ -17,8 +17,8 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 /// </summary>
 internal sealed record ExecuteToolOutput
 {
-    public string CallId { get; init; } = "";
-    public string FunctionName { get; init; } = "";
-    public string ResultJson { get; init; } = "null";
+    public string CallId { get; init; } = string.Empty;
+    public string FunctionName { get; init; } = string.Empty;
+    public string? ResultJson { get; init; }
     public string? Error { get; init; }
 }

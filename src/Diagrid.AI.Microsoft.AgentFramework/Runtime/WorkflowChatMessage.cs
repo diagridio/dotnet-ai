@@ -17,7 +17,7 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 /// </summary>
 internal sealed record WorkflowChatMessage
 {
-    public string Role { get; init; } = "";
+    public string Role { get; init; } = string.Empty;
     public string? Content { get; init; }
     public List<WorkflowFunctionCall>? FunctionCalls { get; init; }
     public List<WorkflowFunctionResult>? FunctionResults { get; init; }
@@ -28,8 +28,8 @@ internal sealed record WorkflowChatMessage
 /// </summary>
 internal sealed record WorkflowFunctionCall
 {
-    public string CallId { get; init; } = "";
-    public string Name { get; init; } = "";
+    public string CallId { get; init; } = string.Empty;
+    public string Name { get; init; } = string.Empty;
     public string ArgumentsJson { get; init; } = "{}";
 }
 
@@ -38,7 +38,7 @@ internal sealed record WorkflowFunctionCall
 /// </summary>
 internal sealed record WorkflowFunctionResult
 {
-    public string CallId { get; init; } = "";
-    public string Name { get; init; } = "";
-    public string ResultJson { get; init; } = "null";
+    public string CallId { get; init; } = string.Empty;
+    public string Name { get; init; } = string.Empty;
+    public string? ResultJson { get; init; }
 }

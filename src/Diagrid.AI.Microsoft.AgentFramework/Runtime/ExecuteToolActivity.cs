@@ -55,6 +55,8 @@ internal sealed partial class ExecuteToolActivity(
                 "Ensure the agent was registered with tools via AddDaprAgents().WithAgent(...).");
         }
 
+        // Safe for concurrent activities: DaprAgentContextAccessor uses AsyncLocal,
+        // so each activity's async flow sees its own value (see DaprAgentContextAccessor remarks).
         contextAccessor.Current = new DaprAgentContext(workflowClient, context.InstanceId);
         try
         {
