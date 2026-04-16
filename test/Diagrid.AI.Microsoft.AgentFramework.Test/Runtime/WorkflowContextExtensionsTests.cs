@@ -22,7 +22,7 @@ public sealed class WorkflowContextExtensionsTests
         var agent = context.GetAgent("alpha", "key");
         var response = await context.RunAgentAsync(agent, message: "hello");
 
-        Assert.Equal(nameof(InvokeAgentActivity), activityName);
+        Assert.Equal(nameof(AgentRunWorkflow), activityName);
         Assert.NotNull(captured);
         Assert.Equal("alpha", captured!.AgentName);
         Assert.Equal("hello", captured.Message);

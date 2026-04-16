@@ -1,8 +1,8 @@
 // Copyright (c) 2026-present Diagrid Inc
-// 
+//
 // Licensed under the Business Source License 1.1 (BSL 1.1).
 // You may not use this file except in compliance with the License.
-// 
+//
 // The full license terms, including the Additional Use Grant,
 // are available in the LICENSE.md file at the root of this repository.
 //
@@ -12,6 +12,7 @@
 
 using Dapr.AI.Microsoft.Extensions;
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
+using Diagrid.AI.Microsoft.AgentFramework.Runtime;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
@@ -68,8 +69,7 @@ public static class DaprAgentsBuilderExtensions
         return builder.WithAgent(conversationComponentName, sp =>
         {
             var chatClient = sp.GetRequiredKeyedService<IChatClient>(conversationComponentName);
-            var agent = factory(chatClient);
-            return agent.AsBuilder().UseToolActivityDispatch(sp).Build(sp);
+            return factory(chatClient);
         });
     }
 
@@ -102,8 +102,7 @@ public static class DaprAgentsBuilderExtensions
         return builder.WithAgent(new AgentFactoryRegistration(sp =>
         {
             var chatClient = sp.GetRequiredKeyedService<IChatClient>(conversationComponentName);
-            var agent = factory(chatClient);
-            return agent.AsBuilder().UseToolActivityDispatch(sp).Build(sp);
+            return factory(chatClient);
         })
         {
             Name = agentName,
@@ -162,12 +161,23 @@ public static class DaprAgentsBuilderExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(conversationComponentName);
         ArgumentException.ThrowIfNullOrWhiteSpace(instructions);
 
-        return builder.WithAgent(
-            agentName,
-            conversationComponentName,
-            chat => chat.AsAIAgent(instructions: instructions, name: agentName, description: description),
-            configure,
-            serviceLifetime);
+        var services = GetServices(builder);
+        services.AddDaprChatClient(conversationComponentName, conversationComponentName, configure, serviceLifetime);
+
+        return builder.WithAgent(new AgentFactoryRegistration(sp =>
+        {
+            var chatClient = sp.GetRequiredKeyedService<IChatClient>(conversationComponentName);
+            var agent = chatClient.AsAIAgent(instructions: instructions, name: agentName, description: description);
+
+            // Register for per-activity workflow path — no reflection needed.
+            RegisterAgentComponents(sp, agentName, chatClient, instructions, tools: null);
+
+            return agent;
+        })
+        {
+            Name = agentName,
+            ChatClientKey = conversationComponentName,
+        });
     }
 
     /// <summary>
@@ -227,12 +237,92 @@ public static class DaprAgentsBuilderExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(instructions);
         ArgumentNullException.ThrowIfNull(tools);
 
-        return builder.WithAgent(
-            agentName,
-            conversationComponentName,
-            chat => chat.AsAIAgent(instructions: instructions, name: agentName, description: description, tools: [.. tools]),
-            configure,
-            serviceLifetime);
+        var services = GetServices(builder);
+        services.AddDaprChatClient(conversationComponentName, conversationComponentName, configure, serviceLifetime);
+
+        return builder.WithAgent(new AgentFactoryRegistration(sp =>
+        {
+            var chatClient = sp.GetRequiredKeyedService<IChatClient>(conversationComponentName);
+            var agent = chatClient.AsAIAgent(
+                instructions: instructions, name: agentName, description: description, tools: [.. tools]);
+
+            // Register for per-activity workflow path — no reflection needed.
+            RegisterAgentComponents(sp, agentName, chatClient, instructions, tools);
+
+            return agent;
+        })
+        {
+            Name = agentName,
+            ChatClientKey = conversationComponentName,
+        });
+    }
+
+    /// <summary>
+    /// Extracts the <see cref="IChatClient"/>, instructions, and tools from a
+    /// <see cref="ChatClientAgent"/> and registers them in the <see cref="ChatClientRegistry"/>
+    /// and <see cref="ToolRegistry"/> so the workflow can call them as separate activities.
+    /// Uses <see cref="DaprAgentsBuilder.GetAgentChatOptions"/> (backed by
+    /// <c>[UnsafeAccessor]</c>) for AOT-safe access to the internal ChatOptions property.
+    /// </summary>
+    internal static void RegisterAgentComponents(IServiceProvider sp, AIAgent agent, IChatClient rawChatClient)
+    {
+        var agentName = agent.Name;
+        if (string.IsNullOrWhiteSpace(agentName))
+            return;
+
+        string? instructions = null;
+        IList<AITool>? tools = null;
+
+        if (agent is ChatClientAgent cca)
+        {
+            instructions = cca.Instructions;
+            tools = DaprAgentsBuilder.GetAgentChatOptions(cca)?.Tools;
+        }
+
+        var chatClientRegistry = sp.GetRequiredService<ChatClientRegistry>();
+        chatClientRegistry.Register(agentName, rawChatClient, instructions, tools);
+
+        var toolRegistry = sp.GetRequiredService<ToolRegistry>();
+        if (tools is { Count: > 0 })
+        {
+            foreach (var tool in tools)
+            {
+                if (tool is AIFunction fn)
+                {
+                    toolRegistry.Register(agentName, fn);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Registers components using explicitly provided values — no reflection or
+    /// <c>[UnsafeAccessor]</c> needed since the caller already has the raw values.
+    /// </summary>
+    private static void RegisterAgentComponents(
+        IServiceProvider sp,
+        string agentName,
+        IChatClient rawChatClient,
+        string? instructions,
+        IReadOnlyList<AITool>? tools)
+    {
+        if (string.IsNullOrWhiteSpace(agentName))
+            return;
+
+        var chatClientRegistry = sp.GetRequiredService<ChatClientRegistry>();
+        chatClientRegistry.Register(agentName, rawChatClient, instructions, tools as IList<AITool> ?? tools?.ToList());
+
+        if (tools is { Count: > 0 })
+        {
+            var toolRegistry = sp.GetRequiredService<ToolRegistry>();
+            foreach (var tool in tools)
+            {
+                if (tool is AIFunction fn)
+                {
+                    toolRegistry.Register(agentName, fn);
+                }
+            }
+        }
     }
 
     private static IServiceCollection GetServices(IAgentsBuilder builder)

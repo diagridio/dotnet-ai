@@ -177,34 +177,41 @@ public sealed class DaprFixture : IAsyncLifetime
                     reg.RegisterWorkflow<KeyedOrchestrationWorkflow>();
                 })
             // --- Agents for basic invocation tests ---
-            .WithAgent(_ => new TestAIAgent("EchoAgent",
-                _ => AgentRunResponseFactory.CreateWithText("Hello from EchoAgent!")))
+            .WithAgent(_ => new TextResponseMockChatClient("Hello from EchoAgent!")
+                .AsAIAgent(instructions: "Echo agent", name: "EchoAgent"))
             // --- Agent for typed-deserialization tests (returns valid CapitalAnswer JSON) ---
-            .WithAgent(_ => new TestAIAgent("CapitalAgent",
-                _ => AgentRunResponseFactory.CreateWithText(
-                    """{"answer":"Paris","confidence":0.99}""")))
+            .WithAgent(_ => new TextResponseMockChatClient("""{"answer":"Paris","confidence":0.99}""")
+                .AsAIAgent(instructions: "Capital agent", name: "CapitalAgent"))
             // --- Additional agents for multiple-agent tests ---
-            .WithAgent(_ => new TestAIAgent("GreetingAgent",
-                _ => AgentRunResponseFactory.CreateWithText("Hello!")))
-            .WithAgent(_ => new TestAIAgent("FarewellAgent",
-                _ => AgentRunResponseFactory.CreateWithText("Goodbye!")))
+            .WithAgent(_ => new TextResponseMockChatClient("Hello!")
+                .AsAIAgent(instructions: "Greeting agent", name: "GreetingAgent"))
+            .WithAgent(_ => new TextResponseMockChatClient("Goodbye!")
+                .AsAIAgent(instructions: "Farewell agent", name: "FarewellAgent"))
             // --- Keyed agents: different chat-client keys (mirrors KeyedAgentInvokerDemo) ---
             .WithAgent("chat-key-alpha",
-                _ => new TestAIAgent("AlphaAgent",
-                    _ => AgentRunResponseFactory.CreateWithText("Alpha response")))
+                _ => new TextResponseMockChatClient("Alpha response")
+                    .AsAIAgent(instructions: "Alpha agent", name: "AlphaAgent"))
             .WithAgent("chat-key-beta",
-                _ => new TestAIAgent("BetaAgent",
-                    _ => AgentRunResponseFactory.CreateWithText("Beta response")))
-            // --- Context accessor test agent: embeds the current workflow instance ID in its response ---
+                _ => new TextResponseMockChatClient("Beta response")
+                    .AsAIAgent(instructions: "Beta agent", name: "BetaAgent"))
+            // --- Context accessor test agent: uses a tool to read the ambient context ---
             .WithAgent(sp =>
             {
                 var accessor = sp.GetRequiredService<IDaprAgentContextAccessor>();
-                return new TestAIAgent("ContextAgent",
-                    _ =>
+                var getContextTool = AIFunctionFactory.Create(
+                    () =>
                     {
                         var instanceId = accessor.Current?.CurrentWorkflowInstanceId ?? "null";
-                        return AgentRunResponseFactory.CreateWithText($"instanceId:{instanceId}");
-                    });
+                        return $"instanceId:{instanceId}";
+                    },
+                    name: ContextMockChatClient.ToolName,
+                    description: "Gets the current workflow context information.");
+
+                return new ContextMockChatClient()
+                    .AsAIAgent(
+                        instructions: "Context agent",
+                        name: "ContextAgent",
+                        tools: [getContextTool]);
             })
             // --- Tool invocation test agent: uses ToolCallMockChatClient + a real AIFunction tool ---
             .WithAgent(_ =>

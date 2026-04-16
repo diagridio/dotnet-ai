@@ -11,6 +11,10 @@
     </PropertyGroup>
 
     <ItemGroup>
+      <InternalsVisibleTo Include="Diagrid.AI.Microsoft.AgentFramework.Test" />
+    </ItemGroup>
+
+    <ItemGroup>
       <PackageReference Include="Dapr.AI.Microsoft.Extensions" />
       <PackageReference Include="Dapr.Workflow" />
       <PackageReference Include="Microsoft.Agents.AI" />

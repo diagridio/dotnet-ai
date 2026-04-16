@@ -10,17 +10,13 @@
 // On the Change Date, this software will be available under
 // the Apache License, Version 2.0.
 
-using Dapr.Workflow;
-
 namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 
 /// <summary>
-/// Minimal workflow wrapper that executes a single tool invocation as its own Dapr Workflow activity.
-/// Mirrors the pattern of <see cref="AgentRunWorkflow"/> for agent invocations.
+/// Input payload for <see cref="CallLlmActivity"/>. Contains the agent name and the
+/// conversation history needed for a single LLM turn.
 /// </summary>
-internal sealed class ToolRunWorkflow : Workflow<ToolInvocationInput, string>
-{
-    /// <inheritdoc />
-    public override Task<string> RunAsync(WorkflowContext context, ToolInvocationInput input) =>
-        context.CallActivityAsync<string>(nameof(InvokeToolActivity), input);
-}
+internal sealed record CallLlmInput(
+    string AgentName,
+    string? ChatClientKey,
+    List<WorkflowChatMessage> Messages);

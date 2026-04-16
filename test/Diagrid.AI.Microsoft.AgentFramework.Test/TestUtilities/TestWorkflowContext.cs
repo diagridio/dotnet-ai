@@ -54,13 +54,13 @@ internal sealed class TestWorkflowContext : WorkflowContext
     public override Task<T> CallChildWorkflowAsync<T>(string workflowName, object? input = null,
         ChildWorkflowTaskOptions? options = null)
     {
-        return Task.FromResult(default(T)!);
+        return CallActivityAsyncCore<T>(workflowName, input);
     }
 
     public override Task CallChildWorkflowAsync(string workflowName, object? input = null,
         ChildWorkflowTaskOptions? options = null)
     {
-        return Task.CompletedTask;
+        return CallActivityAsyncCore<object?>(workflowName, input);
     }
 
     public override void SendEvent(string instanceId, string eventName, object? eventData = null)

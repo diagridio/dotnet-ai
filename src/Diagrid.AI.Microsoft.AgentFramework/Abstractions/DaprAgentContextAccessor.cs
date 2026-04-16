@@ -17,6 +17,17 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Abstractions;
 /// <summary>
 /// Default implementation of <see cref="IDaprAgentContextAccessor"/>.
 /// </summary>
+/// <remarks>
+/// <para>
+/// This class is registered as a singleton, but is safe for concurrent use across
+/// parallel tool activities because <see cref="AsyncLocal{T}"/> provides per-async-flow
+/// isolation — each activity's async context sees its own value, so concurrent writes
+/// from different <see cref="Runtime.ExecuteToolActivity"/> instances do not interfere.
+/// </para>
+/// <para>
+/// This is the same pattern used by ASP.NET Core's <c>IHttpContextAccessor</c>.
+/// </para>
+/// </remarks>
 internal sealed class DaprAgentContextAccessor : IDaprAgentContextAccessor
 {
     private static readonly AsyncLocal<DaprAgentContext?> _current = new();
