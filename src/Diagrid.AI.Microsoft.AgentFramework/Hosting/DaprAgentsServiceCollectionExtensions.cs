@@ -10,6 +10,7 @@
 // On the Change Date, this software will be available under
 // the Apache License, Version 2.0.
 
+using System.Reflection;
 using System.Text.Json.Serialization;
 using Dapr.Workflow;
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
@@ -45,6 +46,7 @@ public static class DaprAgentsServiceCollectionExtensions
         services.AddDaprWorkflow(opt =>
         {
             opt.RegisterWorkflow<AgentRunWorkflow>();
+            opt.RegisterWorkflow<SessionWorkflow>();
             opt.RegisterActivity<CallLlmActivity>();
             opt.RegisterActivity<ExecuteToolActivity>();
 

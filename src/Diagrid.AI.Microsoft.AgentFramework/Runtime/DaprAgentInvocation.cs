@@ -31,4 +31,10 @@ public sealed record DaprAgentInvocation(
     /// Optional chat client key used to select a keyed agent registration.
     /// </summary>
     public string? ChatClientKey { get; init; }
+    
+    /// <summary>
+    /// Prior conversation messages from earlier turns in the session. Injected by <see cref="SessionWorkflow"/>
+    /// before dispatching the child <see cref="AgentRunWorkflow"/>.
+    /// </summary>
+    public List<WorkflowChatMessage>? PriorMessages { get; init; }
 }

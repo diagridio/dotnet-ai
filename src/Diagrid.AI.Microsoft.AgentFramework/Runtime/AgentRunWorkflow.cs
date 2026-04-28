@@ -26,12 +26,12 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 ///   <item>Feed tool results back and loop until the LLM returns a final response</item>
 /// </list>
 /// </summary>
-public sealed class AgentRunWorkflow : Workflow<DaprAgentInvocation, AgentResponse>
+public sealed class AgentRunWorkflow : Workflow<DaprAgentInvocation, AgentRunResult>
 {
     private const int MaxIterations = 20;
 
     /// <inheritdoc />
-    public override async Task<AgentResponse> RunAsync(WorkflowContext context, DaprAgentInvocation input)
+    public override async Task<AgentRunResult> RunAsync(WorkflowContext context, DaprAgentInvocation input)
     {
         if (string.IsNullOrWhiteSpace(input.Message))
         {
@@ -39,10 +39,19 @@ public sealed class AgentRunWorkflow : Workflow<DaprAgentInvocation, AgentRespon
                 "Message cannot be null or whitespace.", nameof(input));
         }
 
-        var messages = new List<WorkflowChatMessage>
+        // Full message list sent to the LLM (includes prior turns for context)
+        var messages = new List<WorkflowChatMessage>();
+        if (input.PriorMessages is { Count: > 0 })
         {
-            new() { Role = "user", Content = input.Message }
-        };
+            messages.AddRange(input.PriorMessages);
+        }
+        
+        // Track where this turn's messages start
+        var turnStartIndex = messages.Count;
+
+        messages.Add(
+            new WorkflowChatMessage { Role = "user", Content = input.Message }
+        );
 
         for (var iteration = 0; iteration < MaxIterations; iteration++)
         {
@@ -60,10 +69,21 @@ public sealed class AgentRunWorkflow : Workflow<DaprAgentInvocation, AgentRespon
             // If this is a final response (no tool calls), we're done.
             if (llmOutput.IsFinal)
             {
-                return new AgentResponse(new ChatMessage(ChatRole.Assistant, llmOutput.Text ?? string.Empty));
-            }
+                // Add the final assistant message
+                messages.Add(new WorkflowChatMessage
+                {
+                    Role = "assistant",
+                    Content = llmOutput.Text
+                });
 
-            // Add the assistant message (with tool calls) to the conversation.
+                return new AgentRunResult
+                {
+                    Response = new AgentResponse(new ChatMessage(ChatRole.Assistant, llmOutput.Text ?? string.Empty)),
+                    TurnMessages = messages.Skip(turnStartIndex).ToList()
+                };
+            }
+            
+            // Tool-call loop
             messages.Add(new WorkflowChatMessage
             {
                 Role = "assistant",
@@ -94,7 +114,13 @@ public sealed class AgentRunWorkflow : Workflow<DaprAgentInvocation, AgentRespon
             });
         }
 
-        return new AgentResponse(new ChatMessage(ChatRole.Assistant,
+        var maxIterationResponse = new AgentResponse(new ChatMessage(ChatRole.Assistant,
             $"Agent '{input.AgentName}' exceeded the maximum of {MaxIterations} iterations without producing a final response."));
+
+        return new AgentRunResult
+        {
+            Response = maxIterationResponse,
+            TurnMessages = messages.Skip(turnStartIndex).ToList()
+        };
     }
 }
