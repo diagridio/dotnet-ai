@@ -1,7 +1,4 @@
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
-using Diagrid.AI.Microsoft.AgentFramework.Test.TestUtilities;
-using Microsoft.Agents.AI;
-using Microsoft.Extensions.AI;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.Test.Runtime;
 
@@ -86,7 +83,7 @@ public sealed class AgentRunWorkflowTests
         var result = await workflow.RunAsync(context, invocation);
 
         Assert.NotNull(result);
-        Assert.Equal("final answer", result.Text);
+        Assert.Equal("final answer", result.Response.Text);
         Assert.Equal(3, callCount); // LLM -> Tool -> LLM
     }
 
