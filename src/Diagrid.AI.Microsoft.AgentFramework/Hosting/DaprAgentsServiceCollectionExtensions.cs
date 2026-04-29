@@ -36,11 +36,11 @@ public static class DaprAgentsServiceCollectionExtensions
         Action<DaprAgentsSerializationOptions>? configureSerialization = null,
         Action<WorkflowRuntimeOptions>? registrations = null)
     {
-        // Dapr Conversation client (fallback if per-agent keyed registrations aren't used)
-        if (services.All(d => d.ServiceType != typeof(IChatClient)))
-        {
-            services.AddDaprConversationClient();
-        }
+        // Always register the Dapr Conversation client infrastructure. Per-agent keyed
+        // DaprChatClient registrations (via conversationComponentName) depend on this
+        // shared HTTP/gRPC plumbing, so it must be present regardless of which
+        // WithAgent overload the caller uses.
+        services.AddDaprConversationClient();
         
         // Registries + ambient context accessor
         services.AddSingleton<AgentRegistry>();
