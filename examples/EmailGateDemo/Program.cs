@@ -10,18 +10,12 @@
 // On the Change Date, this software will be available under
 // the Apache License, Version 2.0.
 
-using Dapr.AI.Conversation.Extensions;
 using Diagrid.AI.Microsoft.AgentFramework.Hosting;
-using Dapr.AI.Microsoft.Extensions;
 using Dapr.Workflow;
 using EmailGateDemo.Models;
 using EmailGateDemo.Workflows;
 
 var builder = WebApplication.CreateBuilder(args);
-
-// Register the Dapr-backed IChatClient
-builder.Services.AddDaprConversationClient();
-builder.Services.AddDaprChatClient("conversation-ollama", ServiceLifetime.Singleton);
 
 // Create agents to use with the Microsoft Agent Framework
 builder.Services.AddDaprAgents(opt =>

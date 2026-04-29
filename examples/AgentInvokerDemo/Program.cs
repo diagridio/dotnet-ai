@@ -11,13 +11,11 @@
 // the Apache License, Version 2.0.
 
 using AgentInvokerDemo.Models;
-using Dapr.AI.Conversation.Extensions;
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
 using Diagrid.AI.Microsoft.AgentFramework.Hosting;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddDaprConversationClient();
 builder.Services.AddDaprAgents(opt =>
 {
     opt.AddContext(() => AgentInvokerJsonContext.Default);

@@ -10,7 +10,6 @@
 // On the Change Date, this software will be available under
 // the Apache License, Version 2.0.
 
-using Dapr.AI.Conversation.Extensions;
 using Dapr.Workflow;
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
 using Diagrid.AI.Microsoft.AgentFramework.Hosting;
@@ -18,7 +17,6 @@ using Microsoft.Agents.AI;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddDaprConversationClient();
 builder.Services.AddDaprAgents()
 	.WithAgent(
 		agentName: "ChatAgent",

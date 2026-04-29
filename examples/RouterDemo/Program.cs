@@ -10,7 +10,6 @@
 // On the Change Date, this software will be available under
 // the Apache License, Version 2.0.
 
-using Dapr.AI.Conversation.Extensions;
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
 using Diagrid.AI.Microsoft.AgentFramework.Hosting;
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
@@ -23,7 +22,6 @@ var builder = WebApplication.CreateBuilder(args);
 var catalog = new AgentCatalog();
 
 builder.Services.AddSingleton(catalog);
-builder.Services.AddDaprConversationClient();
 
 var agentsBuilder = builder.Services.AddDaprAgents(
     opt => opt.AddContext(() => AgentRouterJsonContext.Default),
@@ -31,11 +29,8 @@ var agentsBuilder = builder.Services.AddDaprAgents(
     {
         opt.RegisterWorkflow<AgentRouterWorkflow>();
         opt.RegisterActivity<RouteWithAgentActivity>();
-    });
-
-agentsBuilder.WithAgent(sp => RouterWorkflowAgentFactory.Create(sp, catalog.RouterWorkflow));
-
-agentsBuilder
+    })
+    .WithAgent(sp => RouterWorkflowAgentFactory.Create(sp, catalog.RouterWorkflow))
     .WithAgent(
         catalog.Router.Name,
         catalog.Router.ConversationComponentName,

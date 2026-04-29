@@ -10,14 +10,11 @@
 // On the Change Date, this software will be available under
 // the Apache License, Version 2.0.
 
-using Dapr.AI.Conversation.Extensions;
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
 using Diagrid.AI.Microsoft.AgentFramework.Hosting;
 using Microsoft.Extensions.AI;
 
 var builder = WebApplication.CreateBuilder(args);
-
-builder.Services.AddDaprConversationClient();
 
 var tools = new List<AITool>
 {
