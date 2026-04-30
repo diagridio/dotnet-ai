@@ -23,6 +23,13 @@ public sealed class AgentRegistry
 {
     private readonly ConcurrentDictionary<AgentKey, Lazy<AIAgent>> _mapByKey = new(new AgentKeyComparer());
     private readonly List<PendingRegistration> _pendingRegistrations = [];
+
+    // Tracks Lazy<AIAgent> instances that have been removed from _pendingRegistrations
+    // but whose factory has not yet finished and been added to _mapByKey.
+    // Concurrent threads use this to wait for an in-progress materialization instead of
+    // incorrectly concluding that the agent is unregistered.
+    private readonly ConcurrentDictionary<Lazy<AIAgent>, byte> _inProgressMaterializations = new();
+
     private readonly object _gate = new();
     private IServiceProvider? _provider;
 
@@ -160,13 +167,22 @@ public sealed class AgentRegistry
                 return null;
             }
 
-            var agent = pending.Value.Lazy.Value;
-            var discoveredKey = new AgentKey(agent.Name!, pending.Value.ChatClientKey);
-            _mapByKey.GetOrAdd(discoveredKey, _ => pending.Value.Lazy);
-
-            if (AgentKeyComparer.Comparer.Equals(agent.Name, name))
+            var lazyToMaterialize = pending.Value.Lazy;
+            _inProgressMaterializations.TryAdd(lazyToMaterialize, 0);
+            try
             {
-                return agent;
+                var agent = lazyToMaterialize.Value;
+                var discoveredKey = new AgentKey(agent.Name!, pending.Value.ChatClientKey);
+                _mapByKey.GetOrAdd(discoveredKey, _ => lazyToMaterialize);
+
+                if (AgentKeyComparer.Comparer.Equals(agent.Name, name))
+                {
+                    return agent;
+                }
+            }
+            finally
+            {
+                _inProgressMaterializations.TryRemove(lazyToMaterialize, out _);
             }
         }
     }
@@ -237,38 +253,66 @@ public sealed class AgentRegistry
     private AIAgent? TryResolvePendingByName(string name, out bool ambiguous)
     {
         ambiguous = false;
-        List<PendingRegistration> pendingSnapshot;
+        Lazy<AIAgent>? match = null;
 
-        lock (_gate)
+        // Process pending registrations one at a time so that each agent is added to
+        // _mapByKey immediately after materialization. This prevents a race where another
+        // thread clears the entire pending list, leaving concurrent callers unable to find
+        // agents that are still being materialized outside the lock.
+        while (true)
         {
-            if (_pendingRegistrations.Count == 0)
+            PendingRegistration pending;
+            lock (_gate)
             {
-                return null;
+                if (_pendingRegistrations.Count == 0)
+                    break;
+
+                pending = _pendingRegistrations[0];
+                _pendingRegistrations.RemoveAt(0);
             }
 
-            pendingSnapshot = new List<PendingRegistration>(_pendingRegistrations);
-            _pendingRegistrations.Clear();
+            var lazyToMaterialize = pending.Lazy;
+            _inProgressMaterializations.TryAdd(lazyToMaterialize, 0);
+            try
+            {
+                var agent = lazyToMaterialize.Value;
+                var discoveredKey = new AgentKey(agent.Name!, pending.ChatClientKey);
+                _mapByKey.GetOrAdd(discoveredKey, _ => lazyToMaterialize);
+
+                if (!AgentKeyComparer.Comparer.Equals(agent.Name, name))
+                {
+                    continue;
+                }
+
+                if (match is null)
+                {
+                    match = lazyToMaterialize;
+                }
+                else
+                {
+                    ambiguous = true;
+                }
+            }
+            finally
+            {
+                _inProgressMaterializations.TryRemove(lazyToMaterialize, out _);
+            }
         }
 
-        Lazy<AIAgent>? match = null;
-        foreach (var pending in pendingSnapshot)
+        // Also wait on any Lazy instances currently being materialized by concurrent threads.
+        // These were removed from _pendingRegistrations but not yet promoted to _mapByKey,
+        // so they would be invisible to the caller's subsequent TryGetSingleMatchByName check.
+        foreach (var (inProgressLazy, _) in _inProgressMaterializations)
         {
-            var agent = pending.Lazy.Value;
-            var discoveredKey = new AgentKey(agent.Name!, pending.ChatClientKey);
-            _mapByKey.GetOrAdd(discoveredKey, _ => pending.Lazy);
-
+            // Lazy.Value blocks until the materializing thread's factory completes.
+            var agent = inProgressLazy.Value;
             if (!AgentKeyComparer.Comparer.Equals(agent.Name, name))
-            {
                 continue;
-            }
 
             if (match is null)
-            {
-                match = pending.Lazy;
-                continue;
-            }
-
-            ambiguous = true;
+                match = inProgressLazy;
+            else
+                ambiguous = true;
         }
 
         return match?.Value;

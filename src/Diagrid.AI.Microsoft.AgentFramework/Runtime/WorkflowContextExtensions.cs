@@ -53,16 +53,44 @@ public static partial class WorkflowContextExtensions
     /// <param name="session">Optional session to use for conversation state.</param>
     /// <param name="options">Optional <see cref="AgentRunOptions"/> for invocation.</param>
     /// <returns>The raw agent response.</returns>
-    public static Task<AgentResponse> RunAgentAsync(
+    public static async Task<AgentResponse> RunAgentAsync(
         this WorkflowContext context,
         IDaprAIAgent agent,
         string? message = null,
         AgentSession? session = null,
-        AgentRunOptions? options = null) =>
-        context.CallChildWorkflowAsync<AgentResponse>(nameof(AgentRunWorkflow),
+        AgentRunOptions? options = null)
+    {
+        var result = await context.CallChildWorkflowAsync<AgentRunResult>(nameof(AgentRunWorkflow),
             new DaprAgentInvocation(agent.Name, message, session, options)
             {
                 ChatClientKey = GetChatClientKey(agent),
+            });
+        return result.Response;
+    }
+
+    /// <summary>
+    /// Invokes an agent as a child workflow with prior conversation history, enabling multi-turn
+    /// conversations within a workflow.
+    /// </summary>
+    /// <param name="context">The current workflow context.</param>
+    /// <param name="agent">The agent reference.</param>
+    /// <param name="message">The user/system message for this turn.</param>
+    /// <param name="priorMessages">The prior conversation messages to include for context. Typically, these are
+    /// accumulated across previous agent invocations in the same workflow.</param>
+    /// <param name="options">Optional agent run options.</param>
+    /// <returns>The agent run result including turn messages for accumulation.</returns>
+    public static Task<AgentRunResult> RunAgentWithHistoryAsync(
+        this WorkflowContext context,
+        IDaprAIAgent agent,
+        string? message = null,
+        List<WorkflowChatMessage>? priorMessages = null,
+        AgentRunOptions? options = null) =>
+        context.CallChildWorkflowAsync<AgentRunResult>(
+            nameof(AgentRunWorkflow),
+            new DaprAgentInvocation(agent.Name, message, Session: null, Options: options)
+            {
+                ChatClientKey = GetChatClientKey(agent),
+                PriorMessages = priorMessages
             });
 
     /// <summary>

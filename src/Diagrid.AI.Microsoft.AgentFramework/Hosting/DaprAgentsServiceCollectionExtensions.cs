@@ -11,9 +11,11 @@
 // the Apache License, Version 2.0.
 
 using System.Text.Json.Serialization;
+using Dapr.AI.Conversation.Extensions;
 using Dapr.Workflow;
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.Hosting;
@@ -34,6 +36,12 @@ public static class DaprAgentsServiceCollectionExtensions
         Action<DaprAgentsSerializationOptions>? configureSerialization = null,
         Action<WorkflowRuntimeOptions>? registrations = null)
     {
+        // Always register the Dapr Conversation client infrastructure. Per-agent keyed
+        // DaprChatClient registrations (via conversationComponentName) depend on this
+        // shared HTTP/gRPC plumbing, so it must be present regardless of which
+        // WithAgent overload the caller uses.
+        services.AddDaprConversationClient();
+        
         // Registries + ambient context accessor
         services.AddSingleton<AgentRegistry>();
         services.AddSingleton<IDaprAgentInvoker, DaprAgentInvoker>();
@@ -45,6 +53,7 @@ public static class DaprAgentsServiceCollectionExtensions
         services.AddDaprWorkflow(opt =>
         {
             opt.RegisterWorkflow<AgentRunWorkflow>();
+            opt.RegisterWorkflow<SessionWorkflow>();
             opt.RegisterActivity<CallLlmActivity>();
             opt.RegisterActivity<ExecuteToolActivity>();
 

@@ -32,8 +32,7 @@ following body:
 }
 ```
 
-This represents a draft email could be legitimately sent and shouldn't be considered spam. This will return a response
-containing an `instanceId`.
+This represents a draft email could be legitimately sent and shouldn't be considered spam. This will return a response containing an `instanceId`.
 
 Looking through your application logs, you should be able to observe the workflow eventually producing a response 
 similar to the following:

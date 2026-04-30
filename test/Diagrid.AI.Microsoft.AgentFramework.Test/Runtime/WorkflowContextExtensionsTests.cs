@@ -16,7 +16,7 @@ public sealed class WorkflowContextExtensionsTests
         {
             activityName = name;
             captured = (DaprAgentInvocation)input!;
-            return Task.FromResult<object?>(AgentRunResponseFactory.CreateWithText("{}"));
+            return Task.FromResult<object?>(new AgentRunResult { Response = AgentRunResponseFactory.CreateWithText("{}") });
         });
 
         var agent = context.GetAgent("alpha", "key");
@@ -40,7 +40,7 @@ public sealed class WorkflowContextExtensionsTests
         var context = new TestWorkflowContext("instance-2", (_, _) =>
         {
             var text = "```json\n{\"Value\":\"ok\"}\n```";
-            return Task.FromResult<object?>(AgentRunResponseFactory.CreateWithText(text));
+            return Task.FromResult<object?>(new AgentRunResult { Response = AgentRunResponseFactory.CreateWithText(text) });
         });
 
         var agent = context.GetAgent("beta");
@@ -59,7 +59,7 @@ public sealed class WorkflowContextExtensionsTests
 
         var context = new TestWorkflowContext("instance-3", (_, _) =>
         {
-            return Task.FromResult<object?>(AgentRunResponseFactory.CreateWithText(" "));
+            return Task.FromResult<object?>(new AgentRunResult { Response = AgentRunResponseFactory.CreateWithText(" ") });
         });
 
         var agent = context.GetAgent("gamma");

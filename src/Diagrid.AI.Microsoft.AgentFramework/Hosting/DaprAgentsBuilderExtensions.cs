@@ -109,33 +109,108 @@ public static class DaprAgentsBuilderExtensions
             ChatClientKey = conversationComponentName,
         });
     }
+    
+    /// <summary>
+    /// Registers a named agent using the default registered <see cref="IChatClient"/>.
+    /// </summary>
+    /// <param name="builder">The agents builder.</param>
+    /// <param name="agentName">The explicit agent name used for registration.</param>
+    /// <param name="instructions">The system instructions/prompt for the agent.</param>
+    /// <returns>The agents builder.</returns>
+    public static IAgentsBuilder WithAgent(
+        this IAgentsBuilder builder,
+        string agentName,
+        string instructions)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(instructions);
+
+        return builder.WithAgent(new AgentFactoryRegistration(sp =>
+        {
+            var chatClient = sp.GetRequiredService<IChatClient>();
+            var agent = chatClient.AsAIAgent(instructions: instructions, name: agentName);
+
+            // Register for per-activity workflow path — no reflection needed.
+            RegisterAgentComponents(sp, agentName, chatClient, instructions, tools: null);
+
+            return agent;
+        })
+        {
+            Name = agentName,
+        });
+    }
+    
+    /// <summary>
+    /// Registers a keyed <see cref="DaprChatClient"/> and a named agent that uses it.
+    /// </summary>
+    /// <param name="builder">The agents builder.</param>
+    /// <param name="agentName">The explicit agent name used for registration.</param>
+    /// <param name="instructions">The system instructions/prompt for the agent.</param>
+    /// <param name="chatClientKey">The key of the registered <see cref="IChatClient"/> to register with the agent.</param>
+    /// <param name="description">The optional agent description.</param>
+    /// <returns>The agents builder.</returns>
+    public static IAgentsBuilder WithAgent(
+        this IAgentsBuilder builder,
+        string agentName,
+        string instructions,
+        string chatClientKey,
+        string? description)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(instructions);
+        ArgumentException.ThrowIfNullOrWhiteSpace(chatClientKey);
+
+        return builder.WithAgent(new AgentFactoryRegistration(sp =>
+        {
+            var chatClient = sp.GetRequiredKeyedService<IChatClient>(chatClientKey);
+            var agent = chatClient.AsAIAgent(instructions: instructions, name: agentName, description: description);
+
+            // Register for per-activity workflow path — no reflection needed.
+            RegisterAgentComponents(sp, agentName, chatClient, instructions, tools: null);
+
+            return agent;
+        })
+        {
+            Name = agentName,
+        });
+    }
 
     /// <summary>
     /// Registers a keyed <see cref="DaprChatClient"/> and a named agent that uses it.
     /// </summary>
     /// <param name="builder">The agents builder.</param>
     /// <param name="agentName">The explicit agent name used for registration.</param>
-    /// <param name="conversationComponentName">The name of the Dapr Conversation component.</param>
     /// <param name="instructions">The system instructions/prompt for the agent.</param>
-    /// <param name="configure">An optional <see cref="Action{T}"/> to configure the chat client options.</param>
-    /// <param name="serviceLifetime">The <see cref="ServiceLifetime"/> of the chat client service.</param>
+    /// <param name="chatClient">The <see cref="IChatClient"/> to register with the agent.</param>
+    /// <param name="description">The optional agent description.</param>
     /// <returns>The agents builder.</returns>
     public static IAgentsBuilder WithAgent(
         this IAgentsBuilder builder,
         string agentName,
-        string conversationComponentName,
         string instructions,
-        Action<DaprChatClientOptions>? configure = null,
-        ServiceLifetime serviceLifetime = ServiceLifetime.Scoped)
-        => WithAgent(
-            builder,
-            agentName,
-            conversationComponentName,
-            instructions,
-            description: null,
-            configure,
-            serviceLifetime);
+        IChatClient chatClient,
+        string? description = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(instructions);
 
+        return builder.WithAgent(new AgentFactoryRegistration(sp =>
+        {
+            var agent = chatClient.AsAIAgent(instructions: instructions, name: agentName, description: description);
+
+            // Register for per-activity workflow path — no reflection needed.
+            RegisterAgentComponents(sp, agentName, chatClient, instructions, tools: null);
+
+            return agent;
+        })
+        {
+            Name = agentName,
+        });
+    }
+    
     /// <summary>
     /// Registers a keyed <see cref="DaprChatClient"/> and a named agent that uses it.
     /// </summary>
@@ -152,7 +227,7 @@ public static class DaprAgentsBuilderExtensions
         string agentName,
         string conversationComponentName,
         string instructions,
-        string? description,
+        string? description = null,
         Action<DaprChatClientOptions>? configure = null,
         ServiceLifetime serviceLifetime = ServiceLifetime.Scoped)
     {
