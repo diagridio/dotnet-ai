@@ -79,6 +79,13 @@ public sealed class DaprFixture : IAsyncLifetime
     /// </summary>
     public ToolInvocationTracker ToolTracker { get; } = new ToolInvocationTracker();
 
+    /// <summary>
+    /// Records the number of <see cref="Microsoft.Extensions.AI.ChatMessage"/> objects seen by
+    /// <c>HistoryAgent</c> on each LLM call. Used by session tests to verify that conversation
+    /// history from prior turns is injected into subsequent calls.
+    /// </summary>
+    public MessageCountRecorder HistoryRecorder { get; } = new MessageCountRecorder();
+
     // ── IAsyncLifetime ────────────────────────────────────────────────────────
 
     public async ValueTask InitializeAsync()
@@ -107,7 +114,7 @@ public sealed class DaprFixture : IAsyncLifetime
 
         // 4. Build and start the minimal test application on the port the sidecar already
         //    knows about (BaseHarness assigned it via PortUtilities.GetAvailablePort()).
-        _app = BuildTestApp(_harness.AppPort, ToolTracker);
+        _app = BuildTestApp(_harness.AppPort, ToolTracker, HistoryRecorder);
         await _app.StartAsync();
 
         Invoker         = _app.Services.GetRequiredService<IDaprAgentInvoker>();
@@ -144,7 +151,7 @@ public sealed class DaprFixture : IAsyncLifetime
     /// <c>AgentInvokerDemo</c> example. All agents are <see cref="TestAIAgent"/> instances
     /// that return predetermined responses without calling a real LLM.
     /// </summary>
-    private static WebApplication BuildTestApp(int appPort, ToolInvocationTracker toolTracker)
+    private static WebApplication BuildTestApp(int appPort, ToolInvocationTracker toolTracker, MessageCountRecorder historyRecorder)
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions { EnvironmentName = "Testing" });
@@ -230,7 +237,10 @@ public sealed class DaprFixture : IAsyncLifetime
                         instructions: "You are a test agent that calls tools.",
                         name: "ToolInvocationAgent",
                         tools: [processInputTool]);
-            });
+            })
+            // --- Session history test agent: records the message count seen on each LLM call ---
+            .WithAgent(_ => new MessageCountMockChatClient(historyRecorder)
+                .AsAIAgent(instructions: "History tracking agent", name: "HistoryAgent"));
 
         var app = builder.Build();
 
