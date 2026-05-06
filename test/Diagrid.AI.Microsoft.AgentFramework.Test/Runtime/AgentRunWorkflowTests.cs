@@ -88,6 +88,111 @@ public sealed class AgentRunWorkflowTests
     }
 
     [Fact]
+    public async Task RunAsync_WithToolCalls_FunctionCallIdMatchesToolResultCallId()
+    {
+        // Regression guard: the CallId on the assistant's FunctionCall must be the same CallId
+        // that appears on the subsequent tool-result WorkflowChatMessage.
+        // Without this linkage, DaprChatClient (and OpenAI directly) reject the conversation
+        // because the tool message has no matching tool_calls predecessor.
+        string? capturedFunctionCallId = null;
+        string? capturedToolResultCallId = null;
+
+        var callCount = 0;
+
+        var context = new TestWorkflowContext("workflow-link-1", (name, input) =>
+        {
+            callCount++;
+            if (name == "CallLlmActivity" && callCount == 1)
+            {
+                return Task.FromResult<object?>(new CallLlmOutput
+                {
+                    IsFinal = false,
+                    FunctionCalls = [new WorkflowFunctionCall { CallId = "link-call-1", Name = "fn", ArgumentsJson = "{}" }]
+                });
+            }
+
+            if (name == "ExecuteToolActivity" && input is ExecuteToolInput toolInput)
+            {
+                capturedFunctionCallId = toolInput.CallId;
+                return Task.FromResult<object?>(new ExecuteToolOutput
+                {
+                    CallId = toolInput.CallId,
+                    FunctionName = toolInput.FunctionName,
+                    ResultJson = "\"ok\""
+                });
+            }
+
+            if (name == "CallLlmActivity" && input is CallLlmInput llmInput)
+            {
+                // Capture the CallId from the tool-result message that was built by the workflow.
+                var toolMsg = llmInput.Messages.FirstOrDefault(m => m.Role == "tool");
+                capturedToolResultCallId = toolMsg?.FunctionResults?.FirstOrDefault()?.CallId;
+
+                return Task.FromResult<object?>(new CallLlmOutput { IsFinal = true, Text = "done" });
+            }
+
+            return Task.FromResult<object?>(new CallLlmOutput { IsFinal = true, Text = "done" });
+        });
+
+        var workflow = new AgentRunWorkflow();
+        var invocation = new DaprAgentInvocation("alpha", "run tool", null, null);
+
+        await workflow.RunAsync(context, invocation);
+
+        Assert.Equal("link-call-1", capturedFunctionCallId);
+        Assert.Equal("link-call-1", capturedToolResultCallId);
+        Assert.Equal(capturedFunctionCallId, capturedToolResultCallId);
+    }
+
+    [Fact]
+    public async Task RunAsync_WithToolCalls_TurnMessagesContainAssistantAndToolMessages()
+    {
+        var llmCallCount = 0;
+
+        var context = new TestWorkflowContext("workflow-tm-1", (name, _) =>
+        {
+            if (name == "CallLlmActivity")
+            {
+                llmCallCount++;
+                if (llmCallCount == 1)
+                {
+                    return Task.FromResult<object?>(new CallLlmOutput
+                    {
+                        IsFinal = false,
+                        FunctionCalls = [new WorkflowFunctionCall { CallId = "c1", Name = "fn", ArgumentsJson = "{}" }]
+                    });
+                }
+
+                // Second LLM call — final response.
+                return Task.FromResult<object?>(new CallLlmOutput { IsFinal = true, Text = "final" });
+            }
+
+            if (name == "ExecuteToolActivity")
+            {
+                return Task.FromResult<object?>(new ExecuteToolOutput
+                {
+                    CallId = "c1",
+                    FunctionName = "fn",
+                    ResultJson = "\"r\""
+                });
+            }
+
+            return Task.FromResult<object?>(new CallLlmOutput { IsFinal = true, Text = "final" });
+        });
+
+        var workflow = new AgentRunWorkflow();
+        var invocation = new DaprAgentInvocation("alpha", "go", null, null);
+
+        var result = await workflow.RunAsync(context, invocation);
+
+        // TurnMessages should include: user, assistant(with FunctionCalls), tool(with FunctionResults), assistant(final).
+        Assert.Contains(result.TurnMessages, m => m.Role == "user");
+        Assert.Contains(result.TurnMessages, m => m.Role == "assistant" && m.FunctionCalls is { Count: > 0 });
+        Assert.Contains(result.TurnMessages, m => m.Role == "tool" && m.FunctionResults is { Count: > 0 });
+        Assert.Contains(result.TurnMessages, m => m.Role == "assistant" && m.Content == "final");
+    }
+
+    [Fact]
     public async Task RunAsync_NullMessage_Throws()
     {
         var context = new TestWorkflowContext("workflow-3", (_, _) =>

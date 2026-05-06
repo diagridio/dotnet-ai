@@ -218,7 +218,6 @@ public static class DaprAgentsBuilderExtensions
     /// <param name="agentName">The explicit agent name used for registration.</param>
     /// <param name="conversationComponentName">The name of the Dapr Conversation component.</param>
     /// <param name="instructions">The system instructions/prompt for the agent.</param>
-    /// <param name="description">The optional agent description.</param>
     /// <param name="configure">An optional <see cref="Action{T}"/> to configure the chat client options.</param>
     /// <param name="serviceLifetime">The <see cref="ServiceLifetime"/> of the chat client service.</param>
     /// <returns>The agents builder.</returns>
@@ -227,8 +226,28 @@ public static class DaprAgentsBuilderExtensions
         string agentName,
         string conversationComponentName,
         string instructions,
-        string? description = null,
         Action<DaprChatClientOptions>? configure = null,
+        ServiceLifetime serviceLifetime = ServiceLifetime.Scoped)
+        => WithAgent(builder, agentName, conversationComponentName, instructions, description: null, configure, serviceLifetime);
+
+    /// <summary>
+    /// Registers a keyed <see cref="DaprChatClient"/> and a named agent that uses it.
+    /// </summary>
+    /// <param name="builder">The agents builder.</param>
+    /// <param name="agentName">The explicit agent name used for registration.</param>
+    /// <param name="conversationComponentName">The name of the Dapr Conversation component.</param>
+    /// <param name="instructions">The system instructions/prompt for the agent.</param>
+    /// <param name="description">The agent description, or <c>null</c> for no description.</param>
+    /// <param name="configure">An <see cref="Action{T}"/> to configure the chat client options, or <c>null</c> for defaults.</param>
+    /// <param name="serviceLifetime">The <see cref="ServiceLifetime"/> of the chat client service.</param>
+    /// <returns>The agents builder.</returns>
+    public static IAgentsBuilder WithAgent(
+        this IAgentsBuilder builder,
+        string agentName,
+        string conversationComponentName,
+        string instructions,
+        string? description,
+        Action<DaprChatClientOptions>? configure,
         ServiceLifetime serviceLifetime = ServiceLifetime.Scoped)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -355,7 +374,7 @@ public static class DaprAgentsBuilderExtensions
         }
 
         var chatClientRegistry = sp.GetRequiredService<ChatClientRegistry>();
-        chatClientRegistry.Register(agentName, rawChatClient, instructions, tools);
+        chatClientRegistry.Register(agentName, WrapIfNeeded(rawChatClient), instructions, tools);
 
         var toolRegistry = sp.GetRequiredService<ToolRegistry>();
         if (tools is { Count: > 0 })
@@ -385,7 +404,7 @@ public static class DaprAgentsBuilderExtensions
             return;
 
         var chatClientRegistry = sp.GetRequiredService<ChatClientRegistry>();
-        chatClientRegistry.Register(agentName, rawChatClient, instructions, tools as IList<AITool> ?? tools?.ToList());
+        chatClientRegistry.Register(agentName, WrapIfNeeded(rawChatClient), instructions, tools as IList<AITool> ?? tools?.ToList());
 
         if (tools is { Count: > 0 })
         {
@@ -409,4 +428,15 @@ public static class DaprAgentsBuilderExtensions
 
         throw new InvalidOperationException("The agents builder does not expose an IServiceCollection.");
     }
+
+    /// <summary>
+    /// Wraps <paramref name="client"/> with <see cref="ToolResultCompatibilityChatClient"/>
+    /// when the underlying implementation is <c>DaprChatClient</c>, which does not natively
+    /// support <see cref="FunctionResultContent"/> in multi-turn tool conversations
+    /// (Dapr.AI.Microsoft.Extensions ≤ 1.17.x).
+    /// </summary>
+    private static IChatClient WrapIfNeeded(IChatClient client) =>
+        client.GetType().Name == "DaprChatClient"
+            ? new ToolResultCompatibilityChatClient(client)
+            : client;
 }
