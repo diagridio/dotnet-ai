@@ -15,7 +15,6 @@ using Dapr.AI.Conversation.Extensions;
 using Dapr.Workflow;
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.Hosting;
