@@ -38,10 +38,10 @@ public sealed class DaprAgentContext(DaprWorkflowClient workflowClient, string? 
     /// <param name="instanceId">The optional instance ID; if omitted, a new GUID string is generated.</param>
     /// <typeparam name="TInput">The input type of the workflow.</typeparam>
     /// <returns>The instance ID of the scheduled workflow.</returns>
-    public string ScheduleNewWorkflow<TInput>(string workflowName, TInput input, string? instanceId = null)
+    public async Task<string> ScheduleNewWorkflow<TInput>(string workflowName, TInput input, string? instanceId = null)
     {
         var id = instanceId ?? Guid.NewGuid().ToString("N");
-        workflowClient.ScheduleNewWorkflowAsync(workflowName, id, input);
+        await workflowClient.ScheduleNewWorkflowAsync(workflowName, id, input);
         return id;
     }
 }
