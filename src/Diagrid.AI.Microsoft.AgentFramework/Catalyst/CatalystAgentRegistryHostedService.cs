@@ -81,9 +81,6 @@ internal sealed class CatalystAgentRegistryHostedService(
 	{
 		var config = chatClientRegistry.Get(agent.Name!);
 		var conversationComponent = FindConversationComponent(daprMetadata, agent.Name!, config?.ChatClient);
-		var pubSubComponent = GetComponents(daprMetadata).FirstOrDefault(component =>
-			component.Type?.StartsWith("pubsub.", StringComparison.OrdinalIgnoreCase) == true &&
-			!string.IsNullOrWhiteSpace(component.Name));
 
 		return new AgentMetadataSchema(
 			options.SchemaVersion,
@@ -101,7 +98,6 @@ internal sealed class CatalystAgentRegistryHostedService(
 			},
 			agent.Name!)
 		{
-			PubSub = pubSubComponent is null ? null : new PubSubMetadata(pubSubComponent.Name!),
 			Llm = BuildLlmMetadata(config, conversationComponent),
 			Registry = options.Registry,
 			Tools = BuildToolMetadata(config?.Tools),
