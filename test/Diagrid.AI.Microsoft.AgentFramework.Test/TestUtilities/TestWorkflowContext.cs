@@ -38,8 +38,6 @@ internal sealed class TestWorkflowContext : WorkflowContext
 
     public override bool IsPatched(string patchId) => false;
 
-    public override PropagatedHistory GetPropagatedHistory() => new([]);
-
     public override void ContinueAsNew(object? newInput = null, bool preserveUnprocessedEvents = false)
     {
     }

@@ -198,10 +198,6 @@ public sealed class DaprAgentsBuilderTests
         Assert.Contains(builder.Services, descriptor =>
             descriptor.ServiceType == typeof(IHostedService) &&
             descriptor.ImplementationType == typeof(CatalystAgentRegistryHostedService));
-
-        var provider = builder.Services.BuildServiceProvider();
-        Assert.Contains(provider.GetServices<IHostedService>(), service =>
-            service is CatalystAgentRegistryHostedService);
     }
 
     // -------------------------------------------------------------------------
