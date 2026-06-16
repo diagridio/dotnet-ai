@@ -24,6 +24,8 @@ internal sealed class TestWorkflowContext : WorkflowContext
 
     public override Guid NewGuid() => Guid.NewGuid();
 
+    public override PropagatedHistory? GetPropagatedHistory() => null;
+
     public override Task CreateTimer(DateTime fireAt, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
     public override Task CreateTimer(TimeSpan delay, CancellationToken cancellationToken = default) => Task.CompletedTask;
