@@ -89,6 +89,55 @@ public sealed class AgentRegistry
         _mapByKey.Keys.Select(key => key.Name).Distinct(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Materializes every pending agent registration and returns the full registered set.
+    /// </summary>
+    internal IReadOnlyList<AIAgent> MaterializeAll(IServiceProvider provider)
+    {
+        EnsureInitialized(provider);
+
+        while (true)
+        {
+            PendingRegistration pending;
+            lock (_gate)
+            {
+                if (_pendingRegistrations.Count == 0)
+                {
+                    break;
+                }
+
+                pending = _pendingRegistrations[0];
+                _pendingRegistrations.RemoveAt(0);
+            }
+
+            var lazyToMaterialize = pending.Lazy;
+            _inProgressMaterializations.TryAdd(lazyToMaterialize, 0);
+            try
+            {
+                var agent = lazyToMaterialize.Value;
+                var discoveredKey = new AgentKey(agent.Name!, pending.ChatClientKey);
+                _mapByKey.GetOrAdd(discoveredKey, _ => lazyToMaterialize);
+            }
+            finally
+            {
+                _inProgressMaterializations.TryRemove(lazyToMaterialize, out _);
+            }
+        }
+
+        foreach (var (inProgressLazy, _) in _inProgressMaterializations)
+        {
+            var agent = inProgressLazy.Value;
+            var discoveredKey = new AgentKey(agent.Name!, chatClientKey: null);
+            _mapByKey.GetOrAdd(discoveredKey, _ => inProgressLazy);
+        }
+
+        return _mapByKey.Values
+            .Distinct()
+            .Select(lazy => lazy.Value)
+            .OrderBy(agent => agent.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>
     /// Gets or creates the <see cref="AIAgent"/> registered under the specified agent name.
     /// </summary>
     /// <param name="name">The name of the agent.</param>

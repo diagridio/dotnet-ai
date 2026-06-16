@@ -12,6 +12,8 @@
 
 using System.Text.Json.Serialization;
 using Dapr.AI.Conversation.Extensions;
+using Dapr.Metadata.Extensions;
+using Dapr.StateManagement.Extensions;
 using Dapr.Workflow;
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
@@ -40,6 +42,8 @@ public static class DaprAgentsServiceCollectionExtensions
         // shared HTTP/gRPC plumbing, so it must be present regardless of which
         // WithAgent overload the caller uses.
         services.AddDaprConversationClient();
+        services.AddDaprStateManagementClient();
+        services.AddDaprMetadata();
         
         // Registries + ambient context accessor
         services.AddSingleton<AgentRegistry>();
@@ -51,11 +55,6 @@ public static class DaprAgentsServiceCollectionExtensions
         // Workflow + activities: each LLM call and each tool call is a separate activity
         services.AddDaprWorkflow(opt =>
         {
-            opt.RegisterWorkflow<AgentRunWorkflow>();
-            opt.RegisterWorkflow<SessionWorkflow>();
-            opt.RegisterActivity<CallLlmActivity>();
-            opt.RegisterActivity<ExecuteToolActivity>();
-
             // Register additional workflows and workflow activities here
             registrations?.Invoke(opt);
         });

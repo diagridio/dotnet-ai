@@ -12,10 +12,12 @@
 
 using System.Runtime.CompilerServices;
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
-using Diagrid.AI.Microsoft.AgentFramework.Runtime;
+using Diagrid.AI.Microsoft.AgentFramework.Catalyst;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.Hosting;
 
@@ -38,11 +40,29 @@ internal sealed class DaprAgentsBuilder(IServiceCollection services) : IAgentsBu
         return WithAgentCore(factory, chatClientKey);
     }
 
+    public IAgentsBuilder WithCatalyst(DiagridCatalystOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(options.Registry);
+        ArgumentException.ThrowIfNullOrWhiteSpace(options.Registry.ResourceName);
+
+        Services.AddSingleton(options);
+        Services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IHostedService, CatalystAgentRegistryHostedService>());
+
+        return this;
+    }
+
     private IAgentsBuilder WithAgentCore(Func<IServiceProvider, AIAgent> factory, string? chatClientKey)
     {
+        return WithAgentRegistration(new AgentFactoryRegistration(WrappedFactory)
+        {
+            ChatClientKey = chatClientKey,
+        });
+
         // Wrap the user's factory to extract IChatClient, instructions, and tools
         // for the per-activity workflow path.
-        Func<IServiceProvider, AIAgent> wrappedFactory = sp =>
+        AIAgent WrappedFactory(IServiceProvider sp)
         {
             var agent = factory(sp);
 
@@ -55,12 +75,7 @@ internal sealed class DaprAgentsBuilder(IServiceCollection services) : IAgentsBu
             }
 
             return agent;
-        };
-
-        return WithAgentRegistration(new AgentFactoryRegistration(wrappedFactory)
-        {
-            ChatClientKey = chatClientKey,
-        });
+        }
     }
 
     internal IAgentsBuilder WithAgentRegistration(AgentFactoryRegistration registration)

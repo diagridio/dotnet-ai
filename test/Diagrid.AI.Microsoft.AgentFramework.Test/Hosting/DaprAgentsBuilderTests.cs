@@ -1,8 +1,10 @@
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
+using Diagrid.AI.Microsoft.AgentFramework.Catalyst;
 using Diagrid.AI.Microsoft.AgentFramework.Hosting;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Moq;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.Test.Hosting;
@@ -134,6 +136,68 @@ public sealed class DaprAgentsBuilderTests
         var result = builder.WithAgentRegistration(registration);
 
         Assert.Same(builder, result);
+    }
+
+    // -------------------------------------------------------------------------
+    // WithCatalyst
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void WithCatalyst_NullOptions_ThrowsArgumentNullException()
+    {
+        var builder = BuildDaprBuilder();
+
+        Assert.Throws<ArgumentNullException>(() => builder.WithCatalyst(null!));
+    }
+
+    [Fact]
+    public void WithCatalyst_NullRegistry_ThrowsArgumentNullException()
+    {
+        var builder = BuildDaprBuilder();
+
+        Assert.Throws<ArgumentNullException>(() => builder.WithCatalyst(new DiagridCatalystOptions
+        {
+            Registry = null!,
+        }));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void WithCatalyst_WithoutStateStoreName_ThrowsArgumentException(string stateStoreName)
+    {
+        var builder = BuildDaprBuilder();
+
+        Assert.Throws<ArgumentException>(() => builder.WithCatalyst(new DiagridCatalystOptions
+        {
+            Registry = new RegistryMetadata
+            {
+                ResourceName = stateStoreName,
+            },
+        }));
+    }
+
+    [Fact]
+    public void WithCatalyst_ValidOptions_RegistersOptionsAndHostedService()
+    {
+        var builder = BuildDaprBuilder();
+        var options = new DiagridCatalystOptions
+        {
+            Registry = new RegistryMetadata
+            {
+                ResourceName = "statestore",
+            },
+        };
+
+        var result = builder.WithCatalyst(options);
+
+        Assert.Same(builder, result);
+        Assert.Contains(builder.Services, descriptor =>
+            descriptor.ServiceType == typeof(DiagridCatalystOptions) &&
+            ReferenceEquals(descriptor.ImplementationInstance, options));
+        Assert.Contains(builder.Services, descriptor =>
+            descriptor.ServiceType == typeof(IHostedService) &&
+            descriptor.ImplementationType == typeof(CatalystAgentRegistryHostedService));
     }
 
     // -------------------------------------------------------------------------
