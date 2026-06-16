@@ -6,7 +6,7 @@
         <OutputPath>$(RepoRoot)bin\$(Configuration)\test\$(MSBuildProjectName)\</OutputPath>
         
         <IsPackable>false</IsPackable>
-        <NoWarm>$(NoWarn);DAPR_CONVERSATION</NoWarm>
+        <NoWarn>$(NoWarn);DAPR_CONVERSATION;NETSDK1188</NoWarn>
     </PropertyGroup>
 
     <!-- Used to annotate PR with test failures: https://github.com/Tyrrrz/GitHubActionsTestLogger -->
