@@ -17,7 +17,6 @@ using Diagrid.AI.Microsoft.AgentFramework.Runtime;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Hosting;
-using System.Text.Json;
 using Microsoft.Extensions.Options;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.Catalyst;
@@ -32,8 +31,6 @@ internal sealed class CatalystAgentRegistryHostedService(
 {
 	private const string RegisteredAgentsStateKey = "agents";
 	private const string AgentMetadataStateKeyPrefix = "agents/";
-	private static readonly HttpClient MetadataHttpClient = new();
-	private static readonly JsonSerializerOptions MetadataJsonSerializerOptions = new(JsonSerializerDefaults.Web);
 	private readonly DaprMetadata _daprMetadata = daprMetadataProvider.Value;
 
 	public async Task StartAsync(CancellationToken cancellationToken)
