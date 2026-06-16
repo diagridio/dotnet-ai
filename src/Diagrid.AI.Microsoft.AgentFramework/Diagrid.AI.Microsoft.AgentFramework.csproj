@@ -16,6 +16,8 @@
 
     <ItemGroup>
       <PackageReference Include="Dapr.AI.Microsoft.Extensions" />
+      <PackageReference Include="Dapr.Metadata" />
+      <PackageReference Include="Dapr.StateManagement" />
       <PackageReference Include="Dapr.Workflow" />
       <PackageReference Include="Microsoft.Agents.AI" />
       <PackageReference Include="Microsoft.Extensions.AI" />

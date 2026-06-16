@@ -72,10 +72,8 @@ public static class DaprSessionExtensions
 	/// <returns>The session ID, if present at all; otherwise null.</returns>
 	public static string? GetSessionInstanceId(this AgentSession? session)
 	{
-		if (session?.StateBag.TryGetValue<string>(DaprSessionConstants.SessionInstanceIdKey, out var value) == true && value is string sid)
-		{
+		if (session?.StateBag.TryGetValue<string>(DaprSessionConstants.SessionInstanceIdKey, out var value) == true && value is { } sid)
 			return sid;
-		}
 
 		return null;
 	}

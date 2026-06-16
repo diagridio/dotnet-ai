@@ -708,5 +708,7 @@ public sealed class DaprAgentsBuilderExtensionsTests
         public IAgentsBuilder WithAgent(Func<IServiceProvider, AIAgent> factory) => this;
 
         public IAgentsBuilder WithAgent(string chatClientKey, Func<IServiceProvider, AIAgent> factory) => this;
+
+        public IAgentsBuilder WithCatalyst(DiagridCatalystOptions options) => this;
     }
 }

@@ -10,6 +10,7 @@
 // On the Change Date, this software will be available under
 // the Apache License, Version 2.0.
 
+using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 
@@ -38,4 +39,10 @@ public interface IAgentsBuilder
     /// <see cref="IServiceProvider"/>.</param>
     /// <returns></returns>
     IAgentsBuilder WithAgent(string chatClientKey, Func<IServiceProvider, AIAgent> factory);
+
+    /// <summary>
+    /// Registers options for the Diagrid Catalyst agent registry.
+    /// </summary>
+    /// <param name="options"></param>
+    IAgentsBuilder WithCatalyst(DiagridCatalystOptions options);
 }
