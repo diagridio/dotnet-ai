@@ -30,7 +30,7 @@ public static class DaprAgentsServiceCollectionExtensions
     /// Registers the shared plumbing for configuring Dapr agents and Dapr Workflow plumbing.
     /// </summary>
     /// <param name="services">The service collection.</param>
-    /// <param name="configureSerialization">Optional callback to register source-generated <see cref="JsonSerializerContext"/> instances.</param>
+    /// <param name="configureSerialization">Optional callback to configure Dapr Workflow serialization and source-generated <see cref="JsonSerializerContext"/> instances.</param>
     /// <param name="registrations">Used to register workflows and workflow activities from the calling application.</param>
     public static IAgentsBuilder AddDaprAgents(
         this IServiceCollection services,
@@ -52,16 +52,32 @@ public static class DaprAgentsServiceCollectionExtensions
         services.AddSingleton<ChatClientRegistry>();
         services.AddSingleton<ToolRegistry>();
 
-        // Workflow + activities: each LLM call and each tool call is a separate activity
-        services.AddDaprWorkflow(opt =>
-        {
-            // Register additional workflows and workflow activities here
-            registrations?.Invoke(opt);
-        });
-        
-        // Optional source-generator serialization contracts
+        // Optional source-generator serialization contracts and Dapr Workflow serializer configuration
         var serializationOptions = new DaprAgentsSerializationOptions();
         configureSerialization?.Invoke(serializationOptions);
+
+        // Workflow + activities: each LLM call and each tool call is a separate activity
+        var workflowBuilder = services.AddDaprWorkflowBuilder(
+            opt =>
+            {
+                // Register additional workflows and workflow activities here
+                registrations?.Invoke(opt);
+            },
+            (_, _) => { });
+
+        switch (serializationOptions.SerializerConfiguration)
+        {
+            case DaprAgentsSerializationOptions.WorkflowSerializerConfiguration.JsonSerializerOptions:
+                workflowBuilder.WithJsonSerializer(serializationOptions.JsonSerializerOptions!);
+                break;
+            case DaprAgentsSerializationOptions.WorkflowSerializerConfiguration.Serializer:
+                workflowBuilder.WithSerializer(serializationOptions.WorkflowSerializer!);
+                break;
+            case DaprAgentsSerializationOptions.WorkflowSerializerConfiguration.SerializerFactory:
+                workflowBuilder.WithSerializer(serializationOptions.WorkflowSerializerFactory!);
+                break;
+        }
+
         if (serializationOptions.Contexts.Count > 0)
         {
             services.AddSingleton<IAgentJsonTypeInfoResolver>(_ => new AgentJsonTypeInfoResolver(serializationOptions.Contexts));
