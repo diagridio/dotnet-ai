@@ -217,6 +217,8 @@ public sealed class DaprFixture : IAsyncLifetime
                 .AsAIAgent(instructions: "Greeting agent", name: "GreetingAgent"))
             .WithAgent(_ => new TextResponseMockChatClient("Goodbye!")
                 .AsAIAgent(instructions: "Farewell agent", name: "FarewellAgent"))
+            .WithAgent(_ => new TextResponseMockChatClient("options-probe-response", optionsRecorder)
+                .AsAIAgent(instructions: "Options probe agent", name: "OptionsProbeAgent"))
             // --- Keyed agents: different chat-client keys (mirrors KeyedAgentInvokerDemo) ---
             .WithAgent("chat-key-alpha",
                 _ => new TextResponseMockChatClient("Alpha response")

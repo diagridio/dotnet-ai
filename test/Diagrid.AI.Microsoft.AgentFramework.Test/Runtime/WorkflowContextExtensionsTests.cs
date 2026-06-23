@@ -1,4 +1,5 @@
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
+using Microsoft.Agents.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.Test.Runtime;
@@ -11,6 +12,7 @@ public sealed class WorkflowContextExtensionsTests
     {
         DaprAgentInvocation? captured = null;
         string? activityName = null;
+        var options = new AgentRunOptions();
 
         var context = new TestWorkflowContext("instance-1", (name, input) =>
         {
@@ -20,13 +22,14 @@ public sealed class WorkflowContextExtensionsTests
         });
 
         var agent = context.GetAgent("alpha", "key");
-        var response = await context.RunAgentAsync(agent, message: "hello");
+        var response = await context.RunAgentAsync(agent, message: "hello", options: options);
 
         Assert.Equal(nameof(AgentRunWorkflow), activityName);
         Assert.NotNull(captured);
         Assert.Equal("alpha", captured!.AgentName);
         Assert.Equal("hello", captured.Message);
         Assert.Equal("key", captured.ChatClientKey);
+        Assert.Same(options, captured.Options);
         Assert.NotNull(response);
     }
 

@@ -23,7 +23,7 @@ public sealed class RegistryMetadata
 	/// Dapr resource name backing the registry (e.g. the state store component).
 	/// </summary>
 	[JsonPropertyName("resource_name")]
-	public string? ResourceName { get; init; }
+	public string? ResourceName { get; init; } = "agent-registry";
 	
 	/// <summary>
 	/// The logical team name the agent is registered under.

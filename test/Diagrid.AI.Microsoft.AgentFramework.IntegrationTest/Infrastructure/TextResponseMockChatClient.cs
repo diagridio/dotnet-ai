@@ -12,7 +12,9 @@ namespace Diagrid.AI.Microsoft.AgentFramework.IntegrationTest.Infrastructure;
 /// regardless of the conversation history. Used to replace <c>TestAIAgent</c> for agents
 /// that produce simple canned responses within the per-activity workflow path.
 /// </summary>
-internal sealed class TextResponseMockChatClient(string responseText) : IChatClient
+internal sealed class TextResponseMockChatClient(
+    string responseText,
+    ChatOptionsRecorder? optionsRecorder = null) : IChatClient
 {
     public ChatClientMetadata Metadata { get; } = new ChatClientMetadata("mock-text-client");
 
@@ -21,6 +23,7 @@ internal sealed class TextResponseMockChatClient(string responseText) : IChatCli
         ChatOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+        optionsRecorder?.Record(options);
         var response = new ChatResponse(new ChatMessage(ChatRole.Assistant, responseText));
         return Task.FromResult(response);
     }

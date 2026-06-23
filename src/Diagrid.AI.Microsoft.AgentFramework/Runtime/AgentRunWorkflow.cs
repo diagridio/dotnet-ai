@@ -61,7 +61,7 @@ public sealed class AgentRunWorkflow : Workflow<DaprAgentInvocation, AgentRunRes
         for (var iteration = 0; iteration < MaxIterations; iteration++)
         {
             // Activity: Call the LLM once.
-            var llmInput = new CallLlmInput(input.AgentName, input.ChatClientKey, messages);
+            var llmInput = new CallLlmInput(input.AgentName, input.ChatClientKey, messages, input.Options);
             var llmOutput = await context.CallActivityAsync<CallLlmOutput>(
                 nameof(CallLlmActivity), llmInput);
 

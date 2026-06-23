@@ -5,6 +5,7 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
+using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -22,12 +23,12 @@ public sealed class CallLlmActivityTests
 
     // ── Helpers ────────────────────────────────────────────────────────────
 
-    private static (CallLlmActivity Activity, CapturingChatClient Client) BuildActivity()
+    private static (CallLlmActivity Activity, CapturingChatClient Client) BuildActivity(IList<AITool>? tools = null)
     {
         var sp = new EmptyServiceProvider();
         var capturingClient = new CapturingChatClient();
         var registry = new ChatClientRegistry();
-        registry.Register(AgentName, capturingClient, instructions: null, tools: null);
+        registry.Register(AgentName, capturingClient, instructions: null, tools: tools);
 
         var agentRegistry = new AgentRegistry(sp, []);
         var activity = new CallLlmActivity(registry, agentRegistry, sp, NullLogger<CallLlmActivity>.Instance);
@@ -100,6 +101,41 @@ public sealed class CallLlmActivityTests
         var msgs = capturingClient.LastMessages!;
         Assert.Equal(ChatRole.System, msgs[0].Role);
         Assert.Equal("You are helpful.", msgs[0].Text);
+    }
+
+    [Fact]
+    public async Task RunAsync_AgentRunOptions_ForwardedAsChatOptions()
+    {
+        var tool = AIFunctionFactory.Create(() => "ok", name: "probe");
+        var (activity, client) = BuildActivity([tool]);
+        client.SetNextResponse(finalText: "ok");
+
+        var additionalProperties = new AdditionalPropertiesDictionary
+        {
+            ["trace-id"] = "trace-1"
+        };
+        var options = new AgentRunOptions
+        {
+            AllowBackgroundResponses = true,
+            AdditionalProperties = additionalProperties,
+            ResponseFormat = ChatResponseFormat.Json
+        };
+
+        var input = new CallLlmInput(
+            AgentName,
+            null,
+            [new WorkflowChatMessage { Role = "user", Content = "hello" }],
+            options);
+
+        await activity.RunAsync(MakeContext(), input);
+
+        var chatOptions = client.LastOptions;
+        Assert.NotNull(chatOptions);
+        Assert.True(chatOptions!.AllowBackgroundResponses);
+        Assert.Same(additionalProperties, chatOptions.AdditionalProperties);
+        Assert.Same(ChatResponseFormat.Json, chatOptions.ResponseFormat);
+        var capturedTool = Assert.Single(chatOptions.Tools!);
+        Assert.Same(tool, capturedTool);
     }
 
     // ── FunctionCallContent round-trip ─────────────────────────────────────
@@ -293,6 +329,7 @@ public sealed class CallLlmActivityTests
     internal sealed class CapturingChatClient : IChatClient
     {
         public List<ChatMessage>? LastMessages { get; private set; }
+        public ChatOptions? LastOptions { get; private set; }
 
         private ChatResponse? _nextResponse;
 
@@ -317,6 +354,7 @@ public sealed class CallLlmActivityTests
             CancellationToken cancellationToken = default)
         {
             LastMessages = messages.ToList();
+            LastOptions = options;
             return Task.FromResult(_nextResponse
                 ?? new ChatResponse(new ChatMessage(ChatRole.Assistant, string.Empty)));
         }
