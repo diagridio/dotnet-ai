@@ -1,5 +1,6 @@
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
 using Diagrid.AI.Microsoft.AgentFramework.Hosting;
+using Diagrid.AI.Microsoft.AgentFramework.Runtime;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
@@ -293,6 +294,27 @@ public sealed class DaprAgentsBuilderExtensionsTests
         Assert.Contains(registrations, r => r!.Name == "my-agent");
     }
 
+    [Fact]
+    public void WithAgent_AgentNameInstructions_MaterializedFactoryRegistersChatClientConfig()
+    {
+        var services = new ServiceCollection();
+        var chatClient = new TestChatClient();
+        services.AddSingleton<IChatClient>(chatClient);
+        var builder = services.AddDaprAgents();
+        builder.WithAgent("my-agent", "Do something useful.");
+        var provider = services.BuildServiceProvider();
+        var registration = FindRegistration(services, "my-agent");
+
+        var agent = registration.Factory(provider);
+
+        Assert.Equal("my-agent", agent.Name);
+        var config = provider.GetRequiredService<ChatClientRegistry>().Get("my-agent");
+        Assert.NotNull(config);
+        Assert.Same(chatClient, config!.ChatClient);
+        Assert.Equal("Do something useful.", config.Instructions);
+        Assert.Null(config.Tools);
+    }
+
     // =========================================================================
     // WithAgent(builder, agentName, instructions, chatClientKey, description)
     // =========================================================================
@@ -352,6 +374,26 @@ public sealed class DaprAgentsBuilderExtensionsTests
             .ToList();
 
         Assert.Contains(registrations, r => r!.Name == "named-agent");
+    }
+
+    [Fact]
+    public void WithAgent_AgentNameInstructionsChatClientKey_MaterializedFactoryResolvesKeyedClient()
+    {
+        var services = new ServiceCollection();
+        var chatClient = new TestChatClient();
+        services.AddKeyedSingleton<IChatClient>("some-key", chatClient);
+        var builder = services.AddDaprAgents();
+        builder.WithAgent("named-agent", "Be helpful.", "some-key", description: "A helpful agent.");
+        var provider = services.BuildServiceProvider();
+        var registration = FindRegistration(services, "named-agent");
+
+        var agent = registration.Factory(provider);
+
+        Assert.Equal("named-agent", agent.Name);
+        var config = provider.GetRequiredService<ChatClientRegistry>().Get("named-agent");
+        Assert.NotNull(config);
+        Assert.Same(chatClient, config!.ChatClient);
+        Assert.Equal("Be helpful.", config.Instructions);
     }
 
     // =========================================================================
@@ -430,6 +472,25 @@ public sealed class DaprAgentsBuilderExtensionsTests
             .ToList();
 
         Assert.Contains(registrations, r => r!.Name == "inline-agent");
+    }
+
+    [Fact]
+    public void WithAgent_AgentNameInstructionsChatClient_MaterializedFactoryUsesProvidedClient()
+    {
+        var services = new ServiceCollection();
+        var builder = services.AddDaprAgents();
+        var chatClient = new TestChatClient();
+        builder.WithAgent("inline-agent", "Be concise.", chatClient, description: "Inline");
+        var provider = services.BuildServiceProvider();
+        var registration = FindRegistration(services, "inline-agent");
+
+        var agent = registration.Factory(provider);
+
+        Assert.Equal("inline-agent", agent.Name);
+        var config = provider.GetRequiredService<ChatClientRegistry>().Get("inline-agent");
+        Assert.NotNull(config);
+        Assert.Same(chatClient, config!.ChatClient);
+        Assert.Equal("Be concise.", config.Instructions);
     }
 
     // =========================================================================
@@ -539,6 +600,56 @@ public sealed class DaprAgentsBuilderExtensionsTests
             .ToList();
 
         Assert.Contains(registrations, r => r!.Name == "agent" && r.ChatClientKey == "component");
+    }
+
+    [Fact]
+    public void RegisterAgentComponents_ChatClientAgent_RegistersInstructionsAndFunctionTools()
+    {
+        var services = new ServiceCollection();
+        services.AddDaprAgents();
+        var provider = services.BuildServiceProvider();
+        var chatClient = new TestChatClient();
+        var function = AIFunctionFactory.Create(() => "ok", name: "probe");
+        var agent = chatClient.AsAIAgent(instructions: "Use tools.", name: "tool-agent", tools: [function]);
+
+        DaprAgentsBuilderExtensions.RegisterAgentComponents(provider, agent, chatClient);
+
+        var config = provider.GetRequiredService<ChatClientRegistry>().Get("tool-agent");
+        Assert.NotNull(config);
+        Assert.Same(chatClient, config!.ChatClient);
+        Assert.Equal("Use tools.", config.Instructions);
+        Assert.Contains(config.Tools!, tool => ReferenceEquals(function, tool));
+        Assert.Same(function, provider.GetRequiredService<ToolRegistry>().Get("tool-agent", "probe"));
+    }
+
+    [Fact]
+    public void RegisterAgentComponents_EmptyAgentName_DoesNotRegisterConfig()
+    {
+        var services = new ServiceCollection();
+        services.AddDaprAgents();
+        var provider = services.BuildServiceProvider();
+        var chatClient = new TestChatClient();
+        var agent = new TestAIAgent("");
+
+        DaprAgentsBuilderExtensions.RegisterAgentComponents(provider, agent, chatClient);
+
+        Assert.Null(provider.GetRequiredService<ChatClientRegistry>().Get(""));
+    }
+
+    [Fact]
+    public void RegisterAgentComponents_DaprNamedClient_WrapsToolResultCompatibilityClient()
+    {
+        var services = new ServiceCollection();
+        services.AddDaprAgents();
+        var provider = services.BuildServiceProvider();
+        var rawClient = new DaprChatClient();
+        var agent = rawClient.AsAIAgent(instructions: "Use Dapr.", name: "dapr-agent");
+
+        DaprAgentsBuilderExtensions.RegisterAgentComponents(provider, agent, rawClient);
+
+        var config = provider.GetRequiredService<ChatClientRegistry>().Get("dapr-agent");
+        Assert.NotNull(config);
+        Assert.IsType<ToolResultCompatibilityChatClient>(config!.ChatClient);
     }
 
     // =========================================================================
@@ -711,4 +822,33 @@ public sealed class DaprAgentsBuilderExtensionsTests
 
         public IAgentsBuilder WithCatalyst(DiagridCatalystOptions options) => this;
     }
+
+    private static AgentFactoryRegistration FindRegistration(IServiceCollection services, string agentName) =>
+        services
+            .Where(sd => sd.ServiceType == typeof(AgentFactoryRegistration))
+            .Select(sd => sd.ImplementationInstance as AgentFactoryRegistration)
+            .Single(registration => registration?.Name == agentName)!;
+
+    private class TestChatClient : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "ok")));
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await Task.CompletedTask;
+            yield break;
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public void Dispose() { }
+    }
+
+    private sealed class DaprChatClient : TestChatClient;
 }

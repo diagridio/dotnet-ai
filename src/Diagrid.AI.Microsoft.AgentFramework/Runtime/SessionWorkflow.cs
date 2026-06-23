@@ -52,7 +52,7 @@ public sealed class SessionWorkflow : Workflow<SessionWorkflowInput, string>
 			try
 			{
 				// Build the invocation with the prior conversation history
-				var invocation = new DaprAgentInvocation(turnRequest.AgentName, turnRequest.Message, null, null)
+				var invocation = new DaprAgentInvocation(turnRequest.AgentName, turnRequest.Message, null, turnRequest.Options)
 				{
 					ChatClientKey = turnRequest.ChatClientKey,
 					PriorMessages = conversationLog.Count > 0 ? conversationLog : null

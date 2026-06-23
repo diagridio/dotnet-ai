@@ -10,6 +10,8 @@
 // On the Change Date, this software will be available under
 // the Apache License, Version 2.0.
 
+using Microsoft.Agents.AI;
+
 namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 
 /// <summary>
@@ -38,4 +40,9 @@ internal sealed record SessionTurnRequest
 	/// custom status.
 	/// </summary>
 	public string TurnId { get; init; } = string.Empty;
+	
+	/// <summary>
+	/// Options relevant to performing the agent run operation.
+	/// </summary>
+	public AgentRunOptions? Options { get; init; }
 }

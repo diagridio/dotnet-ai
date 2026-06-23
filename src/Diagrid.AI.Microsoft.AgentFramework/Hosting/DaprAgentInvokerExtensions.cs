@@ -57,7 +57,7 @@ public static class DaprAgentInvokerExtensions
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(invoker);
-        var agent = GetAgent(invoker, agentName, chatClientKey);
+        var agent = invoker.GetAgent(agentName, chatClientKey);
         return invoker.RunAgentAsync(agent, message, session, options, cancellationToken);
     }
 
@@ -86,7 +86,7 @@ public static class DaprAgentInvokerExtensions
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(invoker);
-        var agent = GetAgent(invoker, agentName, chatClientKey);
+        var agent = invoker.GetAgent(agentName, chatClientKey);
         return invoker.RunAgentAndDeserializeAsync<T>(
             agent,
             logger,
@@ -119,7 +119,7 @@ public static class DaprAgentInvokerExtensions
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(invoker);
-        var agent = GetAgent(invoker, agentName, chatClientKey);
+        var agent = invoker.GetAgent(agentName, chatClientKey);
         return invoker.RunAgentAndDeserializeAsync<T>(
             agent,
             message,
@@ -152,7 +152,7 @@ public static class DaprAgentInvokerExtensions
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(invoker);
-        var agent = GetAgent(invoker, agentName, chatClientKey);
+        var agent = invoker.GetAgent(agentName, chatClientKey);
         return invoker.RunAgentAndDeserializeAsync<T, TCategory>(
             agent,
             message,

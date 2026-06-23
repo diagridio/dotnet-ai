@@ -86,6 +86,11 @@ public sealed class DaprFixture : IAsyncLifetime
     /// </summary>
     public MessageCountRecorder HistoryRecorder { get; } = new MessageCountRecorder();
 
+    /// <summary>
+    /// Records the latest <see cref="ChatOptions"/> received by <c>OptionsProbeAgent</c>.
+    /// </summary>
+    public ChatOptionsRecorder OptionsRecorder { get; } = new ChatOptionsRecorder();
+
     // ── IAsyncLifetime ────────────────────────────────────────────────────────
 
     public async ValueTask InitializeAsync()
@@ -114,7 +119,7 @@ public sealed class DaprFixture : IAsyncLifetime
 
         // 4. Build and start the minimal test application on the port the sidecar already
         //    knows about (BaseHarness assigned it via PortUtilities.GetAvailablePort()).
-        _app = BuildTestApp(_harness.AppPort, ToolTracker, HistoryRecorder);
+        _app = BuildTestApp(_harness.AppPort, ToolTracker, HistoryRecorder, OptionsRecorder);
         await _app.StartAsync();
 
         Invoker         = _app.Services.GetRequiredService<IDaprAgentInvoker>();
@@ -151,7 +156,11 @@ public sealed class DaprFixture : IAsyncLifetime
     /// <c>AgentInvokerDemo</c> example. All agents are <see cref="TestAIAgent"/> instances
     /// that return predetermined responses without calling a real LLM.
     /// </summary>
-    private static WebApplication BuildTestApp(int appPort, ToolInvocationTracker toolTracker, MessageCountRecorder historyRecorder)
+    private static WebApplication BuildTestApp(
+        int appPort,
+        ToolInvocationTracker toolTracker,
+        MessageCountRecorder historyRecorder,
+        ChatOptionsRecorder optionsRecorder)
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions { EnvironmentName = "Testing" });
@@ -194,6 +203,8 @@ public sealed class DaprFixture : IAsyncLifetime
                 .AsAIAgent(instructions: "Greeting agent", name: "GreetingAgent"))
             .WithAgent(_ => new TextResponseMockChatClient("Goodbye!")
                 .AsAIAgent(instructions: "Farewell agent", name: "FarewellAgent"))
+            .WithAgent(_ => new TextResponseMockChatClient("options-probe-response", optionsRecorder)
+                .AsAIAgent(instructions: "Options probe agent", name: "OptionsProbeAgent"))
             // --- Keyed agents: different chat-client keys (mirrors KeyedAgentInvokerDemo) ---
             .WithAgent("chat-key-alpha",
                 _ => new TextResponseMockChatClient("Alpha response")

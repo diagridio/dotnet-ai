@@ -7,11 +7,19 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Test.TestUtilities;
 internal sealed class TestWorkflowContext : WorkflowContext
 {
     private readonly Func<string, object?, Task<object?>> _activityHandler;
+    private readonly Dictionary<string, Queue<object?>> _externalEvents;
 
-    public TestWorkflowContext(string instanceId, Func<string, object?, Task<object?>> activityHandler)
+    public TestWorkflowContext(
+        string instanceId,
+        Func<string, object?, Task<object?>> activityHandler,
+        IEnumerable<(string Name, object? Payload)>? externalEvents = null)
     {
         InstanceId = instanceId;
         _activityHandler = activityHandler;
+        _externalEvents = externalEvents?
+            .GroupBy(static e => e.Name, static e => e.Payload)
+            .ToDictionary(static g => g.Key, static g => new Queue<object?>(g))
+            ?? [];
     }
 
     public override string Name => "TestWorkflow";
@@ -71,6 +79,11 @@ internal sealed class TestWorkflowContext : WorkflowContext
 
     public override Task<T> WaitForExternalEventAsync<T>(string name, CancellationToken cancellationToken = default)
     {
+        if (_externalEvents.TryGetValue(name, out var events) && events.Count > 0)
+        {
+            return Task.FromResult((T)events.Dequeue()!);
+        }
+
         return Task.FromResult(default(T)!);
     }
 
