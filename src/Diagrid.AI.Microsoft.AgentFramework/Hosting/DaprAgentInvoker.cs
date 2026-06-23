@@ -130,8 +130,7 @@ public sealed partial class DaprAgentInvoker(DaprWorkflowClient workflowClient, 
         if (sessionInstanceId is not null)
         {
             // Session-aware path: raise event on the session workflow
-            response = await RunWithSessionAsync(agent, chatClientKey, message, sessionInstanceId,
-                cancellationToken).ConfigureAwait(false);
+            response = await RunWithSessionAsync(agent, chatClientKey, message, sessionInstanceId, options, cancellationToken).ConfigureAwait(false);
             instanceId = sessionInstanceId;
         }
         else
@@ -189,6 +188,7 @@ public sealed partial class DaprAgentInvoker(DaprWorkflowClient workflowClient, 
         string? chatClientKey,
         string? message,
         string sessionInstanceId,
+        AgentRunOptions? agentRunOptions,
         CancellationToken cancellationToken)
     {
         var turnId = Guid.NewGuid().ToString("N");
@@ -204,7 +204,8 @@ public sealed partial class DaprAgentInvoker(DaprWorkflowClient workflowClient, 
                 AgentName = agent.Name,
                 ChatClientKey = chatClientKey,
                 Message = message,
-                TurnId = turnId
+                TurnId = turnId,
+                Options = agentRunOptions
             },
             cancellation: cancellationToken).ConfigureAwait(false);
         
