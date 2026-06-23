@@ -158,6 +158,47 @@ public sealed class ExecuteToolActivityTests
         Assert.Equal(callId, current.GetBaggageItem(AgentTelemetryBaggage.ToolCallIdKey));
     }
 
+    [Fact]
+    public async Task RunAsync_AddsCustomBaggageAndAllowsFrameworkKeyOverrides()
+    {
+        const string agentName = "tool-agent";
+        const string toolName = "lookup";
+        const string callId = "call-1";
+
+        var serviceProvider = new EmptyServiceProvider();
+        var toolRegistry = new ToolRegistry();
+        toolRegistry.Register(agentName, AIFunctionFactory.Create(() => "ok", name: toolName));
+
+        var activity = new ExecuteToolActivity(
+            toolRegistry,
+            new AgentRegistry(serviceProvider, []),
+            new DaprAgentContextAccessor(),
+            workflowClient: null!,
+            serviceProvider,
+            NullLogger<ExecuteToolActivity>.Instance);
+
+        using var current = new Activity("test").Start();
+
+        await activity.RunAsync(
+            new TestWorkflowActivityContext("workflow-1"),
+            new ExecuteToolInput(
+                agentName,
+                toolName,
+                callId,
+                "{}",
+                new Dictionary<string, string?>
+                {
+                    [AgentTelemetryBaggage.AgentOperationKey] = "override-operation",
+                    ["tenant.id"] = "tenant-1"
+                }));
+
+        Assert.Equal(agentName, current.GetBaggageItem(AgentTelemetryBaggage.AgentNameKey));
+        Assert.Equal("override-operation", current.GetBaggageItem(AgentTelemetryBaggage.AgentOperationKey));
+        Assert.Equal(toolName, current.GetBaggageItem(AgentTelemetryBaggage.ToolNameKey));
+        Assert.Equal(callId, current.GetBaggageItem(AgentTelemetryBaggage.ToolCallIdKey));
+        Assert.Equal("tenant-1", current.GetBaggageItem("tenant.id"));
+    }
+
     private sealed class EmptyServiceProvider : IServiceProvider
     {
         public object? GetService(Type serviceType) => null;

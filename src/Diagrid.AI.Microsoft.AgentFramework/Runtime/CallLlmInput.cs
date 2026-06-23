@@ -22,4 +22,5 @@ internal sealed record CallLlmInput(
     string AgentName,
     string? ChatClientKey,
     List<WorkflowChatMessage> Messages,
-    AgentRunOptions? Options = null);
+    AgentRunOptions? Options = null,
+    Dictionary<string, string?>? TelemetryBaggage = null);

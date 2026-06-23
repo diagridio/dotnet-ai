@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
 using Microsoft.Agents.AI;
 
@@ -39,25 +38,31 @@ public sealed class AgentRunWorkflowTests
     }
 
     [Fact]
-    public async Task RunAsync_AddsAgentBaggageToCurrentActivity()
+    public async Task RunAsync_ForwardsTelemetryBaggageToLlmActivity()
     {
-        var context = new TestWorkflowContext("workflow-baggage", (_, _) =>
-            Task.FromResult<object?>(new CallLlmOutput
+        CallLlmInput? capturedInput = null;
+        var context = new TestWorkflowContext("workflow-baggage", (_, input) =>
+        {
+            capturedInput = (CallLlmInput)input!;
+            return Task.FromResult<object?>(new CallLlmOutput
             {
                 IsFinal = true,
                 Text = "done"
-            }));
+            });
+        });
 
         var workflow = new AgentRunWorkflow();
-        var invocation = new DaprAgentInvocation("alpha", "message", null, null) { ChatClientKey = "key" };
-
-        using var current = new Activity("test").Start();
+        var customBaggage = new Dictionary<string, string?> { ["tenant.id"] = "tenant-1" };
+        var invocation = new DaprAgentInvocation("alpha", "message", null, null)
+        {
+            ChatClientKey = "key",
+            TelemetryBaggage = customBaggage
+        };
 
         await workflow.RunAsync(context, invocation);
 
-        Assert.Equal("alpha", current.GetBaggageItem(AgentTelemetryBaggage.AgentNameKey));
-        Assert.Equal("key", current.GetBaggageItem(AgentTelemetryBaggage.AgentChatClientKey));
-        Assert.Equal(AgentTelemetryBaggage.WorkflowOperation, current.GetBaggageItem(AgentTelemetryBaggage.AgentOperationKey));
+        Assert.NotNull(capturedInput);
+        Assert.Same(customBaggage, capturedInput!.TelemetryBaggage);
     }
 
     [Fact]
@@ -171,6 +176,51 @@ public sealed class AgentRunWorkflowTests
         Assert.Equal("link-call-1", capturedFunctionCallId);
         Assert.Equal("link-call-1", capturedToolResultCallId);
         Assert.Equal(capturedFunctionCallId, capturedToolResultCallId);
+    }
+
+    [Fact]
+    public async Task RunAsync_WithToolCalls_ForwardsTelemetryBaggageToToolActivity()
+    {
+        ExecuteToolInput? capturedInput = null;
+        var customBaggage = new Dictionary<string, string?> { ["tenant.id"] = "tenant-1" };
+        var callCount = 0;
+
+        var context = new TestWorkflowContext("workflow-tool-baggage", (name, input) =>
+        {
+            callCount++;
+            if (name == "CallLlmActivity" && callCount == 1)
+            {
+                return Task.FromResult<object?>(new CallLlmOutput
+                {
+                    IsFinal = false,
+                    FunctionCalls = [new WorkflowFunctionCall { CallId = "c1", Name = "fn", ArgumentsJson = "{}" }]
+                });
+            }
+
+            if (name == "ExecuteToolActivity")
+            {
+                capturedInput = (ExecuteToolInput)input!;
+                return Task.FromResult<object?>(new ExecuteToolOutput
+                {
+                    CallId = "c1",
+                    FunctionName = "fn",
+                    ResultJson = "\"ok\""
+                });
+            }
+
+            return Task.FromResult<object?>(new CallLlmOutput { IsFinal = true, Text = "done" });
+        });
+
+        var workflow = new AgentRunWorkflow();
+        var invocation = new DaprAgentInvocation("alpha", "run tool", null, null)
+        {
+            TelemetryBaggage = customBaggage
+        };
+
+        await workflow.RunAsync(context, invocation);
+
+        Assert.NotNull(capturedInput);
+        Assert.Same(customBaggage, capturedInput!.TelemetryBaggage);
     }
 
     [Fact]

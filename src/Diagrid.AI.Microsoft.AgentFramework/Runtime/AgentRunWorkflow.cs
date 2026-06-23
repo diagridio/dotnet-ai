@@ -33,11 +33,6 @@ public sealed class AgentRunWorkflow : Workflow<DaprAgentInvocation, AgentRunRes
     /// <inheritdoc />
     public override async Task<AgentRunResult> RunAsync(WorkflowContext context, DaprAgentInvocation input)
     {
-        AgentTelemetryBaggage.SetAgent(
-            input.AgentName,
-            input.ChatClientKey,
-            AgentTelemetryBaggage.WorkflowOperation);
-
         if (string.IsNullOrWhiteSpace(input.Message))
         {
             throw new ArgumentException(
@@ -61,7 +56,12 @@ public sealed class AgentRunWorkflow : Workflow<DaprAgentInvocation, AgentRunRes
         for (var iteration = 0; iteration < MaxIterations; iteration++)
         {
             // Activity: Call the LLM once.
-            var llmInput = new CallLlmInput(input.AgentName, input.ChatClientKey, messages, input.Options);
+            var llmInput = new CallLlmInput(
+                input.AgentName,
+                input.ChatClientKey,
+                messages,
+                input.Options,
+                input.TelemetryBaggage);
             var llmOutput = await context.CallActivityAsync<CallLlmOutput>(
                 nameof(CallLlmActivity), llmInput);
 
@@ -100,7 +100,12 @@ public sealed class AgentRunWorkflow : Workflow<DaprAgentInvocation, AgentRunRes
             var toolResults = new List<ExecuteToolOutput>();
             foreach (var fc in llmOutput.FunctionCalls!)
             {
-                var toolInput = new ExecuteToolInput(input.AgentName, fc.Name, fc.CallId, fc.ArgumentsJson);
+                var toolInput = new ExecuteToolInput(
+                    input.AgentName,
+                    fc.Name,
+                    fc.CallId,
+                    fc.ArgumentsJson,
+                    input.TelemetryBaggage);
                 var toolOutput = await context.CallActivityAsync<ExecuteToolOutput>(
                     nameof(ExecuteToolActivity), toolInput);
                 toolResults.Add(toolOutput);

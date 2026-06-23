@@ -20,4 +20,5 @@ internal sealed record ExecuteToolInput(
     string AgentName,
     string FunctionName,
     string CallId,
-    string ArgumentsJson);
+    string ArgumentsJson,
+    Dictionary<string, string?>? TelemetryBaggage = null);

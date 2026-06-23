@@ -3,6 +3,7 @@
 // Licensed under the Business Source License 1.1 (BSL 1.1).
 
 using System.Diagnostics;
+using Diagrid.AI.Microsoft.AgentFramework.Hosting;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.IntegrationTest.Tests;
 
@@ -68,6 +69,39 @@ public sealed class OpenTelemetryBaggageTests(DaprFixture fixture)
         Assert.Equal("tool", baggage[AgentOperationKey]);
         Assert.Equal(TelemetryBaggageMockChatClient.ToolName, baggage[ToolNameKey]);
         Assert.Equal(TelemetryBaggageMockChatClient.ToolCallId, baggage[ToolCallIdKey]);
+    }
+
+    [Fact]
+    public async Task RunAgentWithTelemetryBaggageAsync_RecordsCustomBaggage_AndAllowsFrameworkKeyOverrides()
+    {
+        fixture.TelemetryBaggageRecorder.Reset();
+
+        using var parent = StartParentActivity();
+
+        var agent = fixture.Invoker.GetAgent(TelemetryBaggageMockChatClient.AgentName);
+        var response = await fixture.Invoker.RunAgentWithTelemetryBaggageAsync(
+            agent,
+            new Dictionary<string, string?>
+            {
+                [AgentNameKey] = "custom-agent-name",
+                ["tenant.id"] = "tenant-1"
+            },
+            "capture custom baggage");
+
+        Assert.Equal("telemetry complete", response.Text);
+
+        var baggage = await WaitForBaggageAsync(
+            () => fixture.TelemetryBaggageRecorder.LlmBaggage,
+            item => item.TryGetValue(AgentNameKey, out var agentName) &&
+                    agentName == "custom-agent-name" &&
+                    item.TryGetValue(AgentOperationKey, out var operation) &&
+                    operation == "llm" &&
+                    item.TryGetValue("tenant.id", out var tenantId) &&
+                    tenantId == "tenant-1");
+
+        Assert.Equal("custom-agent-name", baggage[AgentNameKey]);
+        Assert.Equal("llm", baggage[AgentOperationKey]);
+        Assert.Equal("tenant-1", baggage["tenant.id"]);
     }
 
     private static Activity StartParentActivity()

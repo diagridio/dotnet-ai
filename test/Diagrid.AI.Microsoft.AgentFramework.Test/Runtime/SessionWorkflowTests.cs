@@ -12,13 +12,15 @@ public sealed class SessionWorkflowTests
         DaprAgentInvocation? captured = null;
         string? childWorkflowName = null;
         var options = new AgentRunOptions();
+        var telemetryBaggage = new Dictionary<string, string?> { ["tenant.id"] = "tenant-1" };
         var turnRequest = new SessionTurnRequest
         {
             AgentName = "alpha",
             ChatClientKey = "key",
             Message = "hello",
             TurnId = "turn-1",
-            Options = options
+            Options = options,
+            TelemetryBaggage = telemetryBaggage
         };
 
         var context = new TestWorkflowContext(
@@ -45,5 +47,6 @@ public sealed class SessionWorkflowTests
         Assert.Equal("key", captured.ChatClientKey);
         Assert.Equal("hello", captured.Message);
         Assert.Same(options, captured.Options);
+        Assert.Same(telemetryBaggage, captured.TelemetryBaggage);
     }
 }

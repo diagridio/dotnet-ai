@@ -43,10 +43,33 @@ public sealed partial class DaprAgentInvoker(DaprWorkflowClient workflowClient, 
             agent,
             logger,
             GetChatClientKey(agent),
+            null,
             message,
             session,
             options,
             cancellationToken).ConfigureAwait(false);
+
+    /// <inheritdoc />
+    public async Task<AgentResponse> RunAgentWithTelemetryBaggageAsync(
+        IDaprAIAgent agent,
+        IReadOnlyDictionary<string, string?> telemetryBaggage,
+        string? message = null,
+        AgentSession? session = null,
+        AgentRunOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(telemetryBaggage);
+
+        return await RunAgentAsyncCore(
+            agent,
+            logger,
+            GetChatClientKey(agent),
+            AgentTelemetryBaggage.Copy(telemetryBaggage),
+            message,
+            session,
+            options,
+            cancellationToken).ConfigureAwait(false);
+    }
 
     /// <inheritdoc />
     public async Task<T?> RunAgentAndDeserializeAsync<T>(
@@ -63,6 +86,7 @@ public sealed partial class DaprAgentInvoker(DaprWorkflowClient workflowClient, 
             agent,
             innerLogger,
             GetChatClientKey(agent),
+            null,
             message,
             session,
             options,
@@ -109,6 +133,7 @@ public sealed partial class DaprAgentInvoker(DaprWorkflowClient workflowClient, 
         IDaprAIAgent agent,
         ILogger innerLogger,
         string? chatClientKey,
+        Dictionary<string, string?>? telemetryBaggage,
         string? message,
         AgentSession? session,
         AgentRunOptions? options,
@@ -130,14 +155,21 @@ public sealed partial class DaprAgentInvoker(DaprWorkflowClient workflowClient, 
         if (sessionInstanceId is not null)
         {
             // Session-aware path: raise event on the session workflow
-            response = await RunWithSessionAsync(agent, chatClientKey, message, sessionInstanceId, options, cancellationToken).ConfigureAwait(false);
+            response = await RunWithSessionAsync(
+                agent,
+                chatClientKey,
+                telemetryBaggage,
+                message,
+                sessionInstanceId,
+                options,
+                cancellationToken).ConfigureAwait(false);
             instanceId = sessionInstanceId;
         }
         else
         {
             // Stateless path: schedule a standalone workflow (existing behavior)
             (response, instanceId) =
-                await RunStatelessAsync(agent, chatClientKey, message, session, options, cancellationToken)
+                await RunStatelessAsync(agent, chatClientKey, telemetryBaggage, message, session, options, cancellationToken)
                     .ConfigureAwait(false);
         }
 
@@ -150,6 +182,7 @@ public sealed partial class DaprAgentInvoker(DaprWorkflowClient workflowClient, 
     private async Task<(AgentResponse Response, string InstanceId)> RunStatelessAsync(
         IDaprAIAgent agent,
         string? chatClientKey,
+        Dictionary<string, string?>? telemetryBaggage,
         string? message,
         AgentSession? session,
         AgentRunOptions? options,
@@ -157,7 +190,8 @@ public sealed partial class DaprAgentInvoker(DaprWorkflowClient workflowClient, 
     {
         var invocation = new DaprAgentInvocation(agent.Name, message, session, options)
         {
-            ChatClientKey = chatClientKey
+            ChatClientKey = chatClientKey,
+            TelemetryBaggage = telemetryBaggage
         };
 
         var instanceId = await workflowClient.ScheduleNewWorkflowAsync(
@@ -186,6 +220,7 @@ public sealed partial class DaprAgentInvoker(DaprWorkflowClient workflowClient, 
     private async Task<AgentResponse> RunWithSessionAsync(
         IDaprAIAgent agent,
         string? chatClientKey,
+        Dictionary<string, string?>? telemetryBaggage,
         string? message,
         string sessionInstanceId,
         AgentRunOptions? agentRunOptions,
@@ -205,7 +240,8 @@ public sealed partial class DaprAgentInvoker(DaprWorkflowClient workflowClient, 
                 ChatClientKey = chatClientKey,
                 Message = message,
                 TurnId = turnId,
-                Options = agentRunOptions
+                Options = agentRunOptions,
+                TelemetryBaggage = telemetryBaggage
             },
             cancellation: cancellationToken).ConfigureAwait(false);
         

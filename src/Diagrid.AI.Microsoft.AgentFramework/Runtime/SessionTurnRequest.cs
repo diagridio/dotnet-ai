@@ -45,4 +45,9 @@ internal sealed record SessionTurnRequest
 	/// Options relevant to performing the agent run operation.
 	/// </summary>
 	public AgentRunOptions? Options { get; init; }
+
+	/// <summary>
+	/// Custom OpenTelemetry baggage values to apply inside workflow activities.
+	/// </summary>
+	public Dictionary<string, string?>? TelemetryBaggage { get; init; }
 }

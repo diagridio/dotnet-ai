@@ -14,19 +14,45 @@ using System.Diagnostics;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 
-internal static class AgentTelemetryBaggage
+/// <summary>
+/// Helpers and key names for OpenTelemetry baggage used by Dapr agent workflow activities.
+/// </summary>
+public static class AgentTelemetryBaggage
 {
-    internal const string AgentNameKey = "agent.name";
-    internal const string AgentChatClientKey = "agent.chat_client_key";
-    internal const string AgentOperationKey = "agent.operation";
-    internal const string ToolNameKey = "tool.name";
-    internal const string ToolCallIdKey = "tool.call_id";
+    /// <summary>
+    /// Baggage key containing the agent name.
+    /// </summary>
+    public const string AgentNameKey = "agent.name";
+
+    /// <summary>
+    /// Baggage key containing the chat client key for keyed agent registrations.
+    /// </summary>
+    public const string AgentChatClientKey = "agent.chat_client_key";
+
+    /// <summary>
+    /// Baggage key containing the current agent operation.
+    /// </summary>
+    public const string AgentOperationKey = "agent.operation";
+
+    /// <summary>
+    /// Baggage key containing the tool name for tool activity invocations.
+    /// </summary>
+    public const string ToolNameKey = "tool.name";
+
+    /// <summary>
+    /// Baggage key containing the tool call ID for tool activity invocations.
+    /// </summary>
+    public const string ToolCallIdKey = "tool.call_id";
 
     internal const string WorkflowOperation = "workflow";
     internal const string LlmOperation = "llm";
     internal const string ToolOperation = "tool";
 
-    public static void SetAgent(string agentName, string? chatClientKey, string operation)
+    internal static void SetAgent(
+        string agentName,
+        string? chatClientKey,
+        string operation,
+        IReadOnlyDictionary<string, string?>? customBaggage = null)
     {
         var current = Activity.Current;
         if (current is null)
@@ -41,9 +67,15 @@ internal static class AgentTelemetryBaggage
         {
             current.SetBaggage(AgentChatClientKey, chatClientKey);
         }
+
+        SetCustom(current, customBaggage);
     }
 
-    public static void SetTool(string agentName, string functionName, string callId)
+    internal static void SetTool(
+        string agentName,
+        string functionName,
+        string callId,
+        IReadOnlyDictionary<string, string?>? customBaggage = null)
     {
         var current = Activity.Current;
         if (current is null)
@@ -55,5 +87,39 @@ internal static class AgentTelemetryBaggage
         current.SetBaggage(AgentOperationKey, ToolOperation);
         current.SetBaggage(ToolNameKey, functionName);
         current.SetBaggage(ToolCallIdKey, callId);
+        SetCustom(current, customBaggage);
+    }
+
+    /// <summary>
+    /// Applies custom baggage values to the current activity, if one exists.
+    /// </summary>
+    /// <param name="baggage">Custom baggage values to add to <see cref="Activity.Current"/>.</param>
+    public static void SetCustom(IReadOnlyDictionary<string, string?>? baggage)
+    {
+        var current = Activity.Current;
+        if (current is null)
+        {
+            return;
+        }
+
+        SetCustom(current, baggage);
+    }
+
+    internal static Dictionary<string, string?>? Copy(IReadOnlyDictionary<string, string?>? baggage) =>
+        baggage is { Count: > 0 }
+            ? new Dictionary<string, string?>(baggage, StringComparer.Ordinal)
+            : null;
+
+    private static void SetCustom(Activity activity, IReadOnlyDictionary<string, string?>? baggage)
+    {
+        if (baggage is null)
+        {
+            return;
+        }
+
+        foreach (var item in baggage)
+        {
+            activity.SetBaggage(item.Key, item.Value);
+        }
     }
 }

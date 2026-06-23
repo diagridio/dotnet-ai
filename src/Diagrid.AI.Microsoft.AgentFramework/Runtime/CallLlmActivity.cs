@@ -34,7 +34,8 @@ internal sealed partial class CallLlmActivity(
         AgentTelemetryBaggage.SetAgent(
             input.AgentName,
             input.ChatClientKey,
-            AgentTelemetryBaggage.LlmOperation);
+            AgentTelemetryBaggage.LlmOperation,
+            input.TelemetryBaggage);
 
         var config = chatClientRegistry.Get(input.AgentName);
         if (config is null)

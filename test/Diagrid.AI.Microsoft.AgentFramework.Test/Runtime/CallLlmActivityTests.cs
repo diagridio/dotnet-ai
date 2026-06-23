@@ -58,6 +58,30 @@ public sealed class CallLlmActivityTests
         Assert.Equal(AgentTelemetryBaggage.LlmOperation, current.GetBaggageItem(AgentTelemetryBaggage.AgentOperationKey));
     }
 
+    [Fact]
+    public async Task RunAsync_AddsCustomBaggageAndAllowsFrameworkKeyOverrides()
+    {
+        var (activity, client) = BuildActivity();
+        client.SetNextResponse(finalText: "ok");
+
+        using var current = new Activity("test").Start();
+        var input = new CallLlmInput(
+            AgentName,
+            "chat-key",
+            [new WorkflowChatMessage { Role = "user", Content = "hello" }],
+            TelemetryBaggage: new Dictionary<string, string?>
+            {
+                [AgentTelemetryBaggage.AgentNameKey] = "override-agent",
+                ["tenant.id"] = "tenant-1"
+            });
+
+        await activity.RunAsync(MakeContext(), input);
+
+        Assert.Equal("override-agent", current.GetBaggageItem(AgentTelemetryBaggage.AgentNameKey));
+        Assert.Equal(AgentTelemetryBaggage.LlmOperation, current.GetBaggageItem(AgentTelemetryBaggage.AgentOperationKey));
+        Assert.Equal("tenant-1", current.GetBaggageItem("tenant.id"));
+    }
+
     // ── User / assistant text messages ─────────────────────────────────────
 
     [Fact]

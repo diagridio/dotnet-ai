@@ -62,6 +62,41 @@ public static class DaprAgentInvokerExtensions
     }
 
     /// <summary>
+    /// Invokes an agent and applies custom OpenTelemetry baggage inside the workflow activities.
+    /// </summary>
+    /// <param name="invoker">The agent invoker.</param>
+    /// <param name="agentName">The agent name used during registration.</param>
+    /// <param name="telemetryBaggage">Custom baggage values. Values with framework keys override the defaults inside activities.</param>
+    /// <param name="message">Optional user/system message.</param>
+    /// <param name="session">Optional session to use for conversation state.</param>
+    /// <param name="options">Optional <see cref="AgentRunOptions"/> for invocation.</param>
+    /// <param name="chatClientKey">Optional chat client key used during registration.</param>
+    /// <param name="cancellationToken">Token to cancel the invocation.</param>
+    /// <returns>The raw agent response.</returns>
+    public static Task<AgentResponse> RunAgentWithTelemetryBaggageAsync(
+        this IDaprAgentInvoker invoker,
+        string agentName,
+        IReadOnlyDictionary<string, string?> telemetryBaggage,
+        string? message = null,
+        AgentSession? session = null,
+        AgentRunOptions? options = null,
+        string? chatClientKey = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(invoker);
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentName);
+
+        var agent = invoker.GetAgent(agentName, chatClientKey);
+        return invoker.RunAgentWithTelemetryBaggageAsync(
+            agent,
+            telemetryBaggage,
+            message,
+            session,
+            options,
+            cancellationToken);
+    }
+
+    /// <summary>
     /// Invokes an agent inside a workflow activity and deserializes the response <see cref="AgentResponse.Text"/> to
     /// <typeparamref name="T"/> using a source-generated <see cref="System.Text.Json.Serialization.JsonSerializerContext"/>.
     /// </summary>
