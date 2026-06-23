@@ -10,6 +10,8 @@
 // On the Change Date, this software will be available under
 // the Apache License, Version 2.0.
 
+using Microsoft.Agents.AI;
+
 namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 
 /// <summary>
@@ -19,4 +21,5 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 internal sealed record CallLlmInput(
     string AgentName,
     string? ChatClientKey,
-    List<WorkflowChatMessage> Messages);
+    List<WorkflowChatMessage> Messages,
+    AgentRunOptions? Options = null);

@@ -12,6 +12,7 @@
 
 using System.Text.Json;
 using Dapr.Workflow;
+using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
@@ -48,7 +49,7 @@ internal sealed partial class CallLlmActivity(
         try
         {
             var messages = BuildChatMessages(config.Instructions, input.Messages);
-            var options = BuildChatOptions(config.Tools);
+            var options = BuildChatOptions(config.Tools, input.Options);
 
             var response = await config.ChatClient.GetResponseAsync(messages, options)
                 .ConfigureAwait(false);
@@ -79,14 +80,23 @@ internal sealed partial class CallLlmActivity(
         return chatMessages;
     }
 
-    private static ChatOptions? BuildChatOptions(IList<AITool>? tools)
+    private static ChatOptions? BuildChatOptions(IList<AITool>? tools, AgentRunOptions? agentRunOptions)
     {
-        if (tools is not { Count: > 0 })
+        if (tools is not { Count: > 0 } && agentRunOptions is null)
         {
             return null;
         }
 
-        return new ChatOptions { Tools = [.. tools] };
+#pragma warning disable MEAI001
+        return new ChatOptions
+        {
+            AllowBackgroundResponses = agentRunOptions?.AllowBackgroundResponses,
+            AdditionalProperties = agentRunOptions?.AdditionalProperties,
+            ContinuationToken = agentRunOptions?.ContinuationToken,
+            ResponseFormat = agentRunOptions?.ResponseFormat,
+            Tools = tools is { Count: > 0 } ? [.. tools] : null
+        };
+#pragma warning restore MEAI001
     }
 
     private static CallLlmOutput ParseResponse(ChatResponse response)

@@ -4,6 +4,7 @@
 
 using Diagrid.AI.Microsoft.AgentFramework.Hosting;
 using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.IntegrationTest.Tests;
 
@@ -68,6 +69,73 @@ public sealed class AgentRunOptionsTests(DaprFixture fixture)
 
         Assert.NotNull(response);
         Assert.Equal("Hello!", response.Text);
+    }
+
+    // ── Options propagation via a session turn ───────────────────────────────
+
+    [Fact]
+    public async Task RunAgentAsync_WithSessionAndNonNullOptions_Succeeds()
+    {
+        var session = await fixture.Invoker.CreateSessionAsync(fixture.WorkflowClient);
+        var agent = fixture.Invoker.GetAgent("EchoAgent");
+        var options = new AgentRunOptions();
+
+        var response = await fixture.Invoker.RunAgentAsync(
+            agent,
+            message: "session test with options",
+            session: session,
+            options: options);
+
+        Assert.NotNull(response);
+        Assert.Equal("Hello from EchoAgent!", response.Text);
+    }
+
+    [Fact]
+    public async Task RunAgentAsync_WithNonNullOptions_ForwardsChatOptionsToChatClient()
+    {
+        fixture.OptionsRecorder.Reset();
+        var agent = fixture.Invoker.GetAgent("OptionsProbeAgent");
+        var options = new AgentRunOptions
+        {
+            AllowBackgroundResponses = true,
+            ResponseFormat = ChatResponseFormat.Json
+        };
+
+        var response = await fixture.Invoker.RunAgentAsync(
+            agent,
+            message: "probe options",
+            options: options);
+
+        Assert.Equal("options-probe-response", response.Text);
+        var snapshot = Assert.IsType<ChatOptionsSnapshot>(fixture.OptionsRecorder.LastSnapshot);
+        Assert.True(snapshot.HasOptions);
+        Assert.True(snapshot.AllowBackgroundResponses);
+        Assert.NotNull(snapshot.ResponseFormat);
+    }
+
+    [Fact]
+    public async Task RunAgentAsync_WithSessionAndNonNullOptions_ForwardsChatOptionsToChatClient()
+    {
+        fixture.OptionsRecorder.Reset();
+        var session = await fixture.Invoker.CreateSessionAsync(fixture.WorkflowClient);
+        var agent = fixture.Invoker.GetAgent("OptionsProbeAgent");
+        var options = new AgentRunOptions
+        {
+            AllowBackgroundResponses = true,
+            ResponseFormat = ChatResponseFormat.Json
+        };
+
+        var response = await fixture.Invoker.RunAgentAsync(
+            agent,
+            message: "probe session options",
+            session: session,
+            options: options);
+
+        Assert.Equal("options-probe-response", response.Text);
+        var snapshot = Assert.IsType<ChatOptionsSnapshot>(fixture.OptionsRecorder.LastSnapshot);
+        Assert.True(snapshot.HasOptions);
+        Assert.True(snapshot.AllowBackgroundResponses);
+        Assert.NotNull(snapshot.ResponseFormat);
     }
 
     // ── Options + typed deserialization ──────────────────────────────────────

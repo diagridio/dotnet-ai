@@ -1,4 +1,5 @@
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
+using Microsoft.Agents.AI;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.Test.Runtime;
 
@@ -8,6 +9,7 @@ public sealed class AgentRunWorkflowTests
     public async Task RunAsync_CallsLlmActivity_AndReturnsFinalResponse()
     {
         string? activityName = null;
+        CallLlmInput? capturedInput = null;
 
         // CallLlmOutput is now accessible via InternalsVisibleTo — no reflection needed.
         var output = new CallLlmOutput
@@ -16,19 +18,23 @@ public sealed class AgentRunWorkflowTests
             Text = "done"
         };
 
-        var context = new TestWorkflowContext("workflow-1", (name, _) =>
+        var context = new TestWorkflowContext("workflow-1", (name, input) =>
         {
             activityName = name;
+            capturedInput = (CallLlmInput)input!;
             return Task.FromResult<object?>(output);
         });
 
         var workflow = new AgentRunWorkflow();
-        var invocation = new DaprAgentInvocation("alpha", "message", null, null) { ChatClientKey = "key" };
+        var options = new AgentRunOptions();
+        var invocation = new DaprAgentInvocation("alpha", "message", null, options) { ChatClientKey = "key" };
 
         var result = await workflow.RunAsync(context, invocation);
 
         Assert.NotNull(result);
         Assert.Equal("CallLlmActivity", activityName);
+        Assert.NotNull(capturedInput);
+        Assert.Same(options, capturedInput!.Options);
     }
 
     [Fact]
