@@ -77,19 +77,24 @@ public sealed class DaprFixture : IAsyncLifetime
     /// Tracks the number of times the <c>process_input</c> tool has been invoked by
     /// <c>ToolInvocationAgent</c> during the test run.
     /// </summary>
-    public ToolInvocationTracker ToolTracker { get; } = new ToolInvocationTracker();
+    public ToolInvocationTracker ToolTracker { get; } = new();
 
     /// <summary>
     /// Records the number of <see cref="Microsoft.Extensions.AI.ChatMessage"/> objects seen by
     /// <c>HistoryAgent</c> on each LLM call. Used by session tests to verify that conversation
     /// history from prior turns is injected into subsequent calls.
     /// </summary>
-    public MessageCountRecorder HistoryRecorder { get; } = new MessageCountRecorder();
+    public MessageCountRecorder HistoryRecorder { get; } = new();
 
     /// <summary>
     /// Records OpenTelemetry baggage visible during LLM and tool execution.
     /// </summary>
-    public TelemetryBaggageRecorder TelemetryBaggageRecorder { get; } = new TelemetryBaggageRecorder();
+    public TelemetryBaggageRecorder TelemetryBaggageRecorder { get; } = new();
+
+    /// <summary>
+    /// Records chat options.
+    /// </summary>
+    public ChatOptionsRecorder OptionsRecorder { get; } = new();
 
     // ── IAsyncLifetime ────────────────────────────────────────────────────────
 
@@ -133,7 +138,7 @@ public sealed class DaprFixture : IAsyncLifetime
 
         // 4. Build and start the minimal test application on the port the sidecar already
         //    knows about (BaseHarness assigned it via PortUtilities.GetAvailablePort()).
-        _app = BuildTestApp(_harness.AppPort, ToolTracker, HistoryRecorder, TelemetryBaggageRecorder);
+        _app = BuildTestApp(_harness.AppPort, ToolTracker, HistoryRecorder, TelemetryBaggageRecorder, OptionsRecorder);
         await _app.StartAsync();
 
         Invoker         = _app.Services.GetRequiredService<IDaprAgentInvoker>();
@@ -174,7 +179,8 @@ public sealed class DaprFixture : IAsyncLifetime
         int appPort,
         ToolInvocationTracker toolTracker,
         MessageCountRecorder historyRecorder,
-        TelemetryBaggageRecorder telemetryBaggageRecorder)
+        TelemetryBaggageRecorder telemetryBaggageRecorder,
+        ChatOptionsRecorder optionsRecorder)
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions { EnvironmentName = "Testing" });
