@@ -1,3 +1,7 @@
+// Copyright (c) 2026-present Diagrid Inc
+//
+// Licensed under the Business Source License 1.1 (BSL 1.1).
+
 using System.Diagnostics;
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
