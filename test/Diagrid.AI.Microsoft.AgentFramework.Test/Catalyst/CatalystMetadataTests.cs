@@ -102,13 +102,13 @@ public sealed class CatalystMetadataTests
     }
 
     [Fact]
-    public void DiagridCatalystOptions_DefaultsToLatestSchemaAndEmptyRegistry()
+    public void DiagridCatalystOptions_DefaultsToLatestSchemaAndDefaultRegistry()
     {
         var options = new DiagridCatalystOptions();
 
         Assert.Equal("latest", options.SchemaVersion);
         Assert.NotNull(options.Registry);
-        Assert.Null(options.Registry.ResourceName);
+        Assert.NotNull(options.Registry.ResourceName);
         Assert.Null(options.Registry.Name);
     }
 }
