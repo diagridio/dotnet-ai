@@ -36,6 +36,8 @@ internal sealed partial class ExecuteToolActivity(
     /// <inheritdoc />
     public override async Task<ExecuteToolOutput> RunAsync(WorkflowActivityContext context, ExecuteToolInput input)
     {
+        AgentTelemetryBaggage.SetTool(input.AgentName, input.FunctionName, input.CallId);
+
         LogToolInvocationInfo(input.AgentName, input.FunctionName);
         LogToolInvocationDebug(input.AgentName, input.FunctionName, input.ArgumentsJson);
 

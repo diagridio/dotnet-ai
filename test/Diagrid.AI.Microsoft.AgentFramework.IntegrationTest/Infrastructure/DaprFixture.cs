@@ -86,11 +86,28 @@ public sealed class DaprFixture : IAsyncLifetime
     /// </summary>
     public MessageCountRecorder HistoryRecorder { get; } = new MessageCountRecorder();
 
+    /// <summary>
+    /// Records OpenTelemetry baggage visible during LLM and tool execution.
+    /// </summary>
+    public TelemetryBaggageRecorder TelemetryBaggageRecorder { get; } = new TelemetryBaggageRecorder();
+
     // ── IAsyncLifetime ────────────────────────────────────────────────────────
 
     public async ValueTask InitializeAsync()
     {
         var componentsDir = TestDirectoryManager.CreateTestDirectory("agent-components");
+        var daprConfigPath = Path.Combine(componentsDir, "otel-tracing-config.yaml");
+        await File.WriteAllTextAsync(
+            daprConfigPath,
+            """
+            apiVersion: dapr.io/v1alpha1
+            kind: Configuration
+            metadata:
+              name: otel-tracing
+            spec:
+              tracing:
+                samplingRate: "1"
+            """);
 
         // 1. Shared Dapr infrastructure: Docker network, Placement, Scheduler, and Redis
         //    (actor state store — required for Dapr Workflow execution).
@@ -102,8 +119,10 @@ public sealed class DaprFixture : IAsyncLifetime
         //    We pass startApp: null and manage the test app ourselves so we can wire up
         //    AddDaprAgents() after the sidecar ports are known.
         _harness = new DaprHarnessBuilder(componentsDir)
+            .WithOptions(new DaprRuntimeOptions(Environment.GetEnvironmentVariable("DAPR_RUNTIME_VERSION") ?? "1.17.0"))
             .WithEnvironment(_environment)
             .BuildWorkflow();
+        SetDaprConfigFilePath(_harness, "/components/otel-tracing-config.yaml");
         await _harness.InitializeAsync();
 
         // 3. Point the test process at the running sidecar so AddDaprAgents picks up the
@@ -114,7 +133,7 @@ public sealed class DaprFixture : IAsyncLifetime
 
         // 4. Build and start the minimal test application on the port the sidecar already
         //    knows about (BaseHarness assigned it via PortUtilities.GetAvailablePort()).
-        _app = BuildTestApp(_harness.AppPort, ToolTracker, HistoryRecorder);
+        _app = BuildTestApp(_harness.AppPort, ToolTracker, HistoryRecorder, TelemetryBaggageRecorder);
         await _app.StartAsync();
 
         Invoker         = _app.Services.GetRequiredService<IDaprAgentInvoker>();
@@ -151,7 +170,11 @@ public sealed class DaprFixture : IAsyncLifetime
     /// <c>AgentInvokerDemo</c> example. All agents are <see cref="TestAIAgent"/> instances
     /// that return predetermined responses without calling a real LLM.
     /// </summary>
-    private static WebApplication BuildTestApp(int appPort, ToolInvocationTracker toolTracker, MessageCountRecorder historyRecorder)
+    private static WebApplication BuildTestApp(
+        int appPort,
+        ToolInvocationTracker toolTracker,
+        MessageCountRecorder historyRecorder,
+        TelemetryBaggageRecorder telemetryBaggageRecorder)
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions { EnvironmentName = "Testing" });
@@ -240,7 +263,25 @@ public sealed class DaprFixture : IAsyncLifetime
             })
             // --- Session history test agent: records the message count seen on each LLM call ---
             .WithAgent(_ => new MessageCountMockChatClient(historyRecorder)
-                .AsAIAgent(instructions: "History tracking agent", name: "HistoryAgent"));
+                .AsAIAgent(instructions: "History tracking agent", name: "HistoryAgent"))
+            // --- Telemetry baggage test agent: records Activity.Current baggage from the LLM and tool activities ---
+            .WithAgent(_ =>
+            {
+                var recordBaggageTool = AIFunctionFactory.Create(
+                    () =>
+                    {
+                        telemetryBaggageRecorder.RecordTool(TelemetryBaggageMockChatClient.GetCurrentBaggage());
+                        return "recorded";
+                    },
+                    name: TelemetryBaggageMockChatClient.ToolName,
+                    description: "Records the current OpenTelemetry baggage.");
+
+                return new TelemetryBaggageMockChatClient(telemetryBaggageRecorder)
+                    .AsAIAgent(
+                        instructions: "Telemetry baggage agent",
+                        name: TelemetryBaggageMockChatClient.AgentName,
+                        tools: [recordBaggageTool]);
+            });
 
         var app = builder.Build();
 
@@ -263,5 +304,22 @@ public sealed class DaprFixture : IAsyncLifetime
         });
 
         return app;
+    }
+
+    private static void SetDaprConfigFilePath(BaseHarness harness, string configFilePath)
+    {
+        var property = typeof(BaseHarness).GetProperty(
+            "DaprConfigFilePath",
+            System.Reflection.BindingFlags.Instance |
+            System.Reflection.BindingFlags.NonPublic |
+            System.Reflection.BindingFlags.Public);
+
+        if (property is null || property.SetMethod is null)
+        {
+            throw new InvalidOperationException(
+                "Dapr.Testcontainers no longer exposes the DaprConfigFilePath harness hook required by these tests.");
+        }
+
+        property.SetValue(harness, configFilePath);
     }
 }

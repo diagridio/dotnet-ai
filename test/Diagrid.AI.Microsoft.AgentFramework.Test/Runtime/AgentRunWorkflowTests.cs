@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.Test.Runtime;
@@ -29,6 +30,28 @@ public sealed class AgentRunWorkflowTests
 
         Assert.NotNull(result);
         Assert.Equal("CallLlmActivity", activityName);
+    }
+
+    [Fact]
+    public async Task RunAsync_AddsAgentBaggageToCurrentActivity()
+    {
+        var context = new TestWorkflowContext("workflow-baggage", (_, _) =>
+            Task.FromResult<object?>(new CallLlmOutput
+            {
+                IsFinal = true,
+                Text = "done"
+            }));
+
+        var workflow = new AgentRunWorkflow();
+        var invocation = new DaprAgentInvocation("alpha", "message", null, null) { ChatClientKey = "key" };
+
+        using var current = new Activity("test").Start();
+
+        await workflow.RunAsync(context, invocation);
+
+        Assert.Equal("alpha", current.GetBaggageItem(AgentTelemetryBaggage.AgentNameKey));
+        Assert.Equal("key", current.GetBaggageItem(AgentTelemetryBaggage.AgentChatClientKey));
+        Assert.Equal(AgentTelemetryBaggage.WorkflowOperation, current.GetBaggageItem(AgentTelemetryBaggage.AgentOperationKey));
     }
 
     [Fact]

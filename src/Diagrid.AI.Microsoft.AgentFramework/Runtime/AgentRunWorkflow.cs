@@ -33,6 +33,11 @@ public sealed class AgentRunWorkflow : Workflow<DaprAgentInvocation, AgentRunRes
     /// <inheritdoc />
     public override async Task<AgentRunResult> RunAsync(WorkflowContext context, DaprAgentInvocation input)
     {
+        AgentTelemetryBaggage.SetAgent(
+            input.AgentName,
+            input.ChatClientKey,
+            AgentTelemetryBaggage.WorkflowOperation);
+
         if (string.IsNullOrWhiteSpace(input.Message))
         {
             throw new ArgumentException(
