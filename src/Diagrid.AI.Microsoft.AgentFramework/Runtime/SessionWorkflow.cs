@@ -55,7 +55,8 @@ public sealed class SessionWorkflow : Workflow<SessionWorkflowInput, string>
 				var invocation = new DaprAgentInvocation(turnRequest.AgentName, turnRequest.Message, null, turnRequest.Options)
 				{
 					ChatClientKey = turnRequest.ChatClientKey,
-					PriorMessages = conversationLog.Count > 0 ? conversationLog : null
+					PriorMessages = conversationLog.Count > 0 ? conversationLog : null,
+					TelemetryBaggage = turnRequest.TelemetryBaggage
 				};
 
 				// Dispatch as a child workflow - gets full durability

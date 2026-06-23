@@ -37,4 +37,9 @@ public sealed record DaprAgentInvocation(
     /// before dispatching the child <see cref="AgentRunWorkflow"/>.
     /// </summary>
     public List<WorkflowChatMessage>? PriorMessages { get; init; }
+
+    /// <summary>
+    /// Custom OpenTelemetry baggage values to apply inside workflow activities.
+    /// </summary>
+    public Dictionary<string, string?>? TelemetryBaggage { get; init; }
 }

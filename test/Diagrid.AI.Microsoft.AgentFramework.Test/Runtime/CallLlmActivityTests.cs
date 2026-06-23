@@ -2,6 +2,7 @@
 //
 // Licensed under the Business Source License 1.1 (BSL 1.1).
 
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
 using Microsoft.Agents.AI;
@@ -37,6 +38,49 @@ public sealed class CallLlmActivityTests
 
     private static TestWorkflowActivityContext MakeContext() =>
         new TestWorkflowActivityContext("instance-1");
+
+    [Fact]
+    public async Task RunAsync_AddsAgentBaggageToCurrentActivity()
+    {
+        var (activity, client) = BuildActivity();
+        client.SetNextResponse(finalText: "ok");
+
+        using var current = new Activity("test").Start();
+        var input = new CallLlmInput(AgentName, "chat-key",
+        [
+            new WorkflowChatMessage { Role = "user", Content = "hello" }
+        ]);
+
+        await activity.RunAsync(MakeContext(), input);
+
+        Assert.Equal(AgentName, current.GetBaggageItem(AgentTelemetryBaggage.AgentNameKey));
+        Assert.Equal("chat-key", current.GetBaggageItem(AgentTelemetryBaggage.AgentChatClientKey));
+        Assert.Equal(AgentTelemetryBaggage.LlmOperation, current.GetBaggageItem(AgentTelemetryBaggage.AgentOperationKey));
+    }
+
+    [Fact]
+    public async Task RunAsync_AddsCustomBaggageAndAllowsFrameworkKeyOverrides()
+    {
+        var (activity, client) = BuildActivity();
+        client.SetNextResponse(finalText: "ok");
+
+        using var current = new Activity("test").Start();
+        var input = new CallLlmInput(
+            AgentName,
+            "chat-key",
+            [new WorkflowChatMessage { Role = "user", Content = "hello" }],
+            TelemetryBaggage: new Dictionary<string, string?>
+            {
+                [AgentTelemetryBaggage.AgentNameKey] = "override-agent",
+                ["tenant.id"] = "tenant-1"
+            });
+
+        await activity.RunAsync(MakeContext(), input);
+
+        Assert.Equal("override-agent", current.GetBaggageItem(AgentTelemetryBaggage.AgentNameKey));
+        Assert.Equal(AgentTelemetryBaggage.LlmOperation, current.GetBaggageItem(AgentTelemetryBaggage.AgentOperationKey));
+        Assert.Equal("tenant-1", current.GetBaggageItem("tenant.id"));
+    }
 
     // ── User / assistant text messages ─────────────────────────────────────
 

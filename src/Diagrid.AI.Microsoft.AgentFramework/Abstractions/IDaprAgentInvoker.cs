@@ -44,6 +44,26 @@ public interface IDaprAgentInvoker
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Invokes an agent and applies custom OpenTelemetry baggage inside the workflow activities.
+    /// </summary>
+    /// <param name="agent">The agent reference.</param>
+    /// <param name="telemetryBaggage">Custom baggage values. Values with framework keys override the defaults inside activities.</param>
+    /// <param name="message">Optional user/system message.</param>
+    /// <param name="session">Optional session to use for conversation state.</param>
+    /// <param name="options">Optional <see cref="AgentRunOptions"/> for invocation.</param>
+    /// <param name="cancellationToken">Token to cancel the invocation.</param>
+    /// <returns>The raw agent response.</returns>
+    Task<AgentResponse> RunAgentWithTelemetryBaggageAsync(
+        IDaprAIAgent agent,
+        IReadOnlyDictionary<string, string?> telemetryBaggage,
+        string? message = null,
+        AgentSession? session = null,
+        AgentRunOptions? options = null,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException(
+            "This IDaprAgentInvoker implementation does not support custom telemetry baggage.");
+
+    /// <summary>
     /// Invokes an agent inside a workflow activity and deserializes the response <see cref="AgentResponse.Text"/> to
     /// <typeparamref name="T"/> using a source-generated <see cref="System.Text.Json.Serialization.JsonSerializerContext"/>.
     /// </summary>

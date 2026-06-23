@@ -31,6 +31,12 @@ internal sealed partial class CallLlmActivity(
     /// <inheritdoc />
     public override async Task<CallLlmOutput> RunAsync(WorkflowActivityContext context, CallLlmInput input)
     {
+        AgentTelemetryBaggage.SetAgent(
+            input.AgentName,
+            input.ChatClientKey,
+            AgentTelemetryBaggage.LlmOperation,
+            input.TelemetryBaggage);
+
         var config = chatClientRegistry.Get(input.AgentName);
         if (config is null)
         {

@@ -69,6 +69,36 @@ public static partial class WorkflowContextExtensions
     }
 
     /// <summary>
+    /// Invokes an agent as a child workflow and applies custom OpenTelemetry baggage inside
+    /// the LLM and tool activities.
+    /// </summary>
+    /// <param name="context">The current workflow context.</param>
+    /// <param name="agent">The <see cref="AIAgent"/> reference.</param>
+    /// <param name="telemetryBaggage">Custom baggage values. Values with framework keys override the defaults inside activities.</param>
+    /// <param name="message">Optional user/system message.</param>
+    /// <param name="session">Optional session to use for conversation state.</param>
+    /// <param name="options">Optional <see cref="AgentRunOptions"/> for invocation.</param>
+    /// <returns>The raw agent response.</returns>
+    public static async Task<AgentResponse> RunAgentWithTelemetryBaggageAsync(
+        this WorkflowContext context,
+        IDaprAIAgent agent,
+        IReadOnlyDictionary<string, string?> telemetryBaggage,
+        string? message = null,
+        AgentSession? session = null,
+        AgentRunOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(telemetryBaggage);
+
+        var result = await context.CallChildWorkflowAsync<AgentRunResult>(nameof(AgentRunWorkflow),
+            new DaprAgentInvocation(agent.Name, message, session, options)
+            {
+                ChatClientKey = GetChatClientKey(agent),
+                TelemetryBaggage = AgentTelemetryBaggage.Copy(telemetryBaggage)
+            });
+        return result.Response;
+    }
+
+    /// <summary>
     /// Invokes an agent as a child workflow with prior conversation history, enabling multi-turn
     /// conversations within a workflow.
     /// </summary>
@@ -78,19 +108,22 @@ public static partial class WorkflowContextExtensions
     /// <param name="priorMessages">The prior conversation messages to include for context. Typically, these are
     /// accumulated across previous agent invocations in the same workflow.</param>
     /// <param name="options">Optional agent run options.</param>
+    /// <param name="telemetryBaggage">Optional custom baggage values to apply inside workflow activities.</param>
     /// <returns>The agent run result including turn messages for accumulation.</returns>
     public static Task<AgentRunResult> RunAgentWithHistoryAsync(
         this WorkflowContext context,
         IDaprAIAgent agent,
         string? message = null,
         List<WorkflowChatMessage>? priorMessages = null,
-        AgentRunOptions? options = null) =>
+        AgentRunOptions? options = null,
+        IReadOnlyDictionary<string, string?>? telemetryBaggage = null) =>
         context.CallChildWorkflowAsync<AgentRunResult>(
             nameof(AgentRunWorkflow),
             new DaprAgentInvocation(agent.Name, message, Session: null, Options: options)
             {
                 ChatClientKey = GetChatClientKey(agent),
-                PriorMessages = priorMessages
+                PriorMessages = priorMessages,
+                TelemetryBaggage = AgentTelemetryBaggage.Copy(telemetryBaggage)
             });
 
     /// <summary>

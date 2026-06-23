@@ -36,6 +36,26 @@ public sealed class DaprAgentInvokerExtensionsTests
     }
 
     [Fact]
+    public async Task RunAgentWithTelemetryBaggageAsync_ForwardsParameters()
+    {
+        var invoker = new FakeInvoker();
+        var baggage = new Dictionary<string, string?> { ["tenant.id"] = "tenant-1" };
+
+        var response = await invoker.RunAgentWithTelemetryBaggageAsync(
+            "alpha",
+            baggage,
+            message: "hello",
+            chatClientKey: "key");
+
+        Assert.NotNull(response);
+        Assert.NotNull(invoker.LastAgent);
+        Assert.Equal("alpha", invoker.LastAgent!.Name);
+        Assert.Equal("hello", invoker.LastMessage);
+        Assert.Same(baggage, invoker.LastTelemetryBaggage);
+    }
+
+
+    [Fact]
     public async Task RunAgentAndDeserializeAsync_WithCategory_ForwardsParameters()
     {
         var invoker = new FakeInvoker();
@@ -50,6 +70,7 @@ public sealed class DaprAgentInvokerExtensionsTests
     {
         public IDaprAIAgent? LastAgent { get; private set; }
         public string? LastMessage { get; private set; }
+        public IReadOnlyDictionary<string, string?>? LastTelemetryBaggage { get; private set; }
 
         public IDaprAIAgent GetAgent(string agentName) => new TestAgentReference(agentName);
 
@@ -58,6 +79,20 @@ public sealed class DaprAgentInvokerExtensionsTests
         {
             LastAgent = agent;
             LastMessage = message;
+            return Task.FromResult(AgentRunResponseFactory.CreateWithText("{}"));
+        }
+
+        public Task<AgentResponse> RunAgentWithTelemetryBaggageAsync(
+            IDaprAIAgent agent,
+            IReadOnlyDictionary<string, string?> telemetryBaggage,
+            string? message = null,
+            AgentSession? session = null,
+            AgentRunOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            LastAgent = agent;
+            LastMessage = message;
+            LastTelemetryBaggage = telemetryBaggage;
             return Task.FromResult(AgentRunResponseFactory.CreateWithText("{}"));
         }
 
