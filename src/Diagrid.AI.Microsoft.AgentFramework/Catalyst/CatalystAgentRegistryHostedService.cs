@@ -27,15 +27,16 @@ internal sealed class CatalystAgentRegistryHostedService(
 	DaprStateManagementClient stateClient,
 	IServiceProvider serviceProvider,
 	IOptions<DaprMetadata> daprMetadataProvider,
-	DiagridCatalystOptions options) : IHostedService
+	IOptions<DiagridCatalystOptions> options) : IHostedService
 {
-	private const string RegisteredAgentsStateKey = "agents";
-	private const string AgentMetadataStateKeyPrefix = "agents/";
+	private const string RegisteredAgentsStateKey = "agents:default:_index";
+	private const string AgentMetadataStateKeyPrefix = "agents:default";
 	private readonly DaprMetadata _daprMetadata = daprMetadataProvider.Value;
+	private readonly DiagridCatalystOptions _options = options.Value;
 
 	public async Task StartAsync(CancellationToken cancellationToken)
 	{
-		if (string.IsNullOrWhiteSpace(options.Registry.ResourceName))
+		if (string.IsNullOrWhiteSpace(_options.Registry.ResourceName))
 			throw new InvalidOperationException(
 				"Diagrid Catalyst requires DiagridCatalystOptions.Registry.ResourceName.");
 
@@ -49,7 +50,7 @@ internal sealed class CatalystAgentRegistryHostedService(
 			.ToList();
 
 		await stateClient.SaveStateAsync(
-				options.Registry.ResourceName,
+				_options.Registry.ResourceName,
 				RegisteredAgentsStateKey,
 				new RegisteredAgentList { AgentNames = agentNames },
 				cancellationToken: cancellationToken)
@@ -62,7 +63,7 @@ internal sealed class CatalystAgentRegistryHostedService(
 
 			var schema = BuildAgentMetadata(agent, _daprMetadata);
 			await stateClient.SaveStateAsync(
-					options.Registry.ResourceName,
+					_options.Registry.ResourceName,
 					GetAgentStateKey(agent.Name),
 					schema,
 					cancellationToken: cancellationToken)
@@ -72,7 +73,7 @@ internal sealed class CatalystAgentRegistryHostedService(
 
 	public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-	private static string GetAgentStateKey(string agentName) => $"{AgentMetadataStateKeyPrefix}{agentName}";
+	private static string GetAgentStateKey(string agentName) => $"{AgentMetadataStateKeyPrefix}:{agentName}";
 
 	private AgentMetadataSchema BuildAgentMetadata(AIAgent agent, DaprMetadata daprMetadata)
 	{
@@ -80,7 +81,7 @@ internal sealed class CatalystAgentRegistryHostedService(
 		var conversationComponent = FindConversationComponent(daprMetadata, agent.Name!, config?.ChatClient);
 
 		return new AgentMetadataSchema(
-			options.SchemaVersion,
+			_options.SchemaVersion,
 			new AgentMetadata
 			{
 				AppId = daprMetadata.AppId ?? "unknown",
@@ -96,7 +97,7 @@ internal sealed class CatalystAgentRegistryHostedService(
 			agent.Name!)
 		{
 			Llm = BuildLlmMetadata(config, conversationComponent),
-			Registry = options.Registry,
+			Registry = _options.Registry,
 			Tools = BuildToolMetadata(config?.Tools),
 		};
 	}
@@ -133,7 +134,7 @@ internal sealed class CatalystAgentRegistryHostedService(
 	}
 
 	private static IEnumerable<ComponentMetadata> GetComponents(DaprMetadata metadata) =>
-		metadata.Components ?? [];
+		metadata.Components;
 
 	private static List<string> SplitInstructions(string? instructions) =>
 		string.IsNullOrWhiteSpace(instructions)
@@ -148,7 +149,7 @@ internal sealed class CatalystAgentRegistryHostedService(
 		return tools
 			.Select(tool => new ToolMetadata(
 				tool.Name,
-				tool.Description ?? string.Empty,
+				tool.Description,
 				"{}"))
 			.ToList();
 	}

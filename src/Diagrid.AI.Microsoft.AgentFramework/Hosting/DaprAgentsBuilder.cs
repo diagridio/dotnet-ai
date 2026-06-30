@@ -18,6 +18,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.Hosting;
 
@@ -46,9 +47,17 @@ internal sealed class DaprAgentsBuilder(IServiceCollection services) : IAgentsBu
         ArgumentNullException.ThrowIfNull(options.Registry);
         ArgumentException.ThrowIfNullOrWhiteSpace(options.Registry.ResourceName);
 
-        Services.AddSingleton(options);
-        Services.TryAddEnumerable(
-            ServiceDescriptor.Singleton<IHostedService, CatalystAgentRegistryHostedService>());
+        Services.AddSingleton(Options.Create(options));
+        Services.AddHostedService<CatalystAgentRegistryHostedService>();
+
+        return this;
+    }
+
+    public IAgentsBuilder WithCatalyst()
+    {
+        var options = new DiagridCatalystOptions();
+        Services.AddSingleton(Options.Create(options));
+        Services.AddHostedService<CatalystAgentRegistryHostedService>();
 
         return this;
     }
