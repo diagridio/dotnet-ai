@@ -5,6 +5,7 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Moq;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.Test.Hosting;
@@ -193,8 +194,26 @@ public sealed class DaprAgentsBuilderTests
 
         Assert.Same(builder, result);
         Assert.Contains(builder.Services, descriptor =>
-            descriptor.ServiceType == typeof(DiagridCatalystOptions) &&
-            ReferenceEquals(descriptor.ImplementationInstance, options));
+            descriptor.ServiceType == typeof(IOptions<DiagridCatalystOptions>) &&
+            descriptor.ImplementationInstance is IOptions<DiagridCatalystOptions> registeredOptions &&
+            ReferenceEquals(registeredOptions.Value, options));
+        Assert.Contains(builder.Services, descriptor =>
+            descriptor.ServiceType == typeof(IHostedService) &&
+            descriptor.ImplementationType == typeof(CatalystAgentRegistryHostedService));
+    }
+
+    [Fact]
+    public void WithCatalyst_WithoutOptions_RegistersDefaultOptionsAndHostedService()
+    {
+        var builder = BuildDaprBuilder();
+
+        var result = builder.WithCatalyst();
+
+        Assert.Same(builder, result);
+        Assert.Contains(builder.Services, descriptor =>
+            descriptor.ServiceType == typeof(IOptions<DiagridCatalystOptions>) &&
+            descriptor.ImplementationInstance is IOptions<DiagridCatalystOptions> registeredOptions &&
+            registeredOptions.Value is not null);
         Assert.Contains(builder.Services, descriptor =>
             descriptor.ServiceType == typeof(IHostedService) &&
             descriptor.ImplementationType == typeof(CatalystAgentRegistryHostedService));

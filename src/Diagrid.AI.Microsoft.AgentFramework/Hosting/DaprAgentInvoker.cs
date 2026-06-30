@@ -173,7 +173,7 @@ public sealed partial class DaprAgentInvoker(DaprWorkflowClient workflowClient, 
                     .ConfigureAwait(false);
         }
 
-        var responseLength = response.Text?.Length ?? 0;
+        var responseLength = response.Text.Length;
         LogAgentResponseInfo(agent.Name, instanceId, responseLength);
         LogAgentResponseDebug(agent.Name, response.Text);
         return response;

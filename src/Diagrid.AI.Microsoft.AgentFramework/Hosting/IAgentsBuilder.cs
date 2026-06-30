@@ -45,4 +45,10 @@ public interface IAgentsBuilder
     /// </summary>
     /// <param name="options"></param>
     IAgentsBuilder WithCatalyst(DiagridCatalystOptions options);
+
+    /// <summary>
+    /// Registers the Diagrid Catalyst agent registry.
+    /// </summary>
+    /// <returns></returns>
+    IAgentsBuilder WithCatalyst();
 }

@@ -821,6 +821,7 @@ public sealed class DaprAgentsBuilderExtensionsTests
         public IAgentsBuilder WithAgent(string chatClientKey, Func<IServiceProvider, AIAgent> factory) => this;
 
         public IAgentsBuilder WithCatalyst(DiagridCatalystOptions options) => this;
+        public IAgentsBuilder WithCatalyst() => this;
     }
 
     private static AgentFactoryRegistration FindRegistration(IServiceCollection services, string agentName) =>
