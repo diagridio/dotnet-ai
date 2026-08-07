@@ -5,6 +5,18 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Test.Runtime;
 
 public sealed class AgentRunWorkflowTests
 {
+    // Every run unconditionally calls ResolveAgentContextActivity before the LLM loop and
+    // CompleteAgentContextActivity after it (see AgentRunWorkflow). Tests that don't care about the
+    // AIContextProvider pipeline use this helper so they only need to handle CallLlmActivity/
+    // ExecuteToolActivity, exactly like before those activities existed.
+    private static TestWorkflowContext MakeContext(string instanceId, Func<string, object?, Task<object?>> handler) =>
+        new(instanceId, (name, input) => name switch
+        {
+            nameof(ResolveAgentContextActivity) => Task.FromResult<object?>(new ResolveAgentContextOutput()),
+            nameof(CompleteAgentContextActivity) => Task.FromResult<object?>(new CompleteAgentContextOutput()),
+            _ => handler(name, input)
+        });
+
     [Fact]
     public async Task RunAsync_CallsLlmActivity_AndReturnsFinalResponse()
     {
@@ -18,7 +30,7 @@ public sealed class AgentRunWorkflowTests
             Text = "done"
         };
 
-        var context = new TestWorkflowContext("workflow-1", (name, input) =>
+        var context = MakeContext("workflow-1", (name, input) =>
         {
             activityName = name;
             capturedInput = (CallLlmInput)input!;
@@ -41,7 +53,7 @@ public sealed class AgentRunWorkflowTests
     public async Task RunAsync_ForwardsTelemetryBaggageToLlmActivity()
     {
         CallLlmInput? capturedInput = null;
-        var context = new TestWorkflowContext("workflow-baggage", (_, input) =>
+        var context = MakeContext("workflow-baggage", (_, input) =>
         {
             capturedInput = (CallLlmInput)input!;
             return Task.FromResult<object?>(new CallLlmOutput
@@ -70,7 +82,7 @@ public sealed class AgentRunWorkflowTests
     {
         var callCount = 0;
 
-        var context = new TestWorkflowContext("workflow-2", (name, _) =>
+        var context = MakeContext("workflow-2", (name, _) =>
         {
             callCount++;
             if (name == "CallLlmActivity" && callCount == 1)
@@ -133,7 +145,7 @@ public sealed class AgentRunWorkflowTests
 
         var callCount = 0;
 
-        var context = new TestWorkflowContext("workflow-link-1", (name, input) =>
+        var context = MakeContext("workflow-link-1", (name, input) =>
         {
             callCount++;
             if (name == "CallLlmActivity" && callCount == 1)
@@ -185,7 +197,7 @@ public sealed class AgentRunWorkflowTests
         var customBaggage = new Dictionary<string, string?> { ["tenant.id"] = "tenant-1" };
         var callCount = 0;
 
-        var context = new TestWorkflowContext("workflow-tool-baggage", (name, input) =>
+        var context = MakeContext("workflow-tool-baggage", (name, input) =>
         {
             callCount++;
             if (name == "CallLlmActivity" && callCount == 1)
@@ -228,7 +240,7 @@ public sealed class AgentRunWorkflowTests
     {
         var llmCallCount = 0;
 
-        var context = new TestWorkflowContext("workflow-tm-1", (name, _) =>
+        var context = MakeContext("workflow-tm-1", (name, _) =>
         {
             if (name == "CallLlmActivity")
             {
@@ -293,5 +305,166 @@ public sealed class AgentRunWorkflowTests
         var invocation = new DaprAgentInvocation("alpha", "   ", null, null);
 
         await Assert.ThrowsAsync<ArgumentException>(() => workflow.RunAsync(context, invocation));
+    }
+
+    // =========================================================================
+    // AIContextProvider pipeline wiring (ResolveAgentContextActivity / CompleteAgentContextActivity)
+    // =========================================================================
+
+    [Fact]
+    public async Task RunAsync_CallsResolveAgentContextActivity_BeforeFirstLlmCall()
+    {
+        var callOrder = new List<string>();
+        ResolveAgentContextInput? capturedInput = null;
+
+        var context = new TestWorkflowContext("workflow-ctx-1", (name, input) =>
+        {
+            callOrder.Add(name);
+            if (name == nameof(ResolveAgentContextActivity))
+            {
+                capturedInput = (ResolveAgentContextInput)input!;
+                return Task.FromResult<object?>(new ResolveAgentContextOutput());
+            }
+
+            if (name == nameof(CompleteAgentContextActivity))
+            {
+                return Task.FromResult<object?>(new CompleteAgentContextOutput());
+            }
+
+            return Task.FromResult<object?>(new CallLlmOutput { IsFinal = true, Text = "done" });
+        });
+
+        var workflow = new AgentRunWorkflow();
+        var invocation = new DaprAgentInvocation("alpha", "hello", null, null) { ChatClientKey = "key" };
+
+        await workflow.RunAsync(context, invocation);
+
+        Assert.Equal(
+            [nameof(ResolveAgentContextActivity), nameof(CallLlmActivity), nameof(CompleteAgentContextActivity)],
+            callOrder);
+        Assert.NotNull(capturedInput);
+        Assert.Equal("alpha", capturedInput!.AgentName);
+        Assert.Equal("key", capturedInput.ChatClientKey);
+    }
+
+    [Fact]
+    public async Task RunAsync_ThreadsAgentContextContribution_IntoEveryLlmCall()
+    {
+        var capturedLlmInputs = new List<CallLlmInput>();
+        var llmCallCount = 0;
+
+        var agentContext = new ResolveAgentContextOutput
+        {
+            Instructions = "You have access to skills.",
+            Messages = [new WorkflowChatMessage { Role = "user", Content = "ephemeral context" }],
+            ToolNames = ["load_skill"]
+        };
+
+        var context = new TestWorkflowContext("workflow-ctx-2", (name, input) =>
+        {
+            if (name == nameof(ResolveAgentContextActivity))
+            {
+                return Task.FromResult<object?>(agentContext);
+            }
+
+            if (name == nameof(CompleteAgentContextActivity))
+            {
+                return Task.FromResult<object?>(new CompleteAgentContextOutput());
+            }
+
+            if (name == "CallLlmActivity")
+            {
+                llmCallCount++;
+                capturedLlmInputs.Add((CallLlmInput)input!);
+                if (llmCallCount == 1)
+                {
+                    return Task.FromResult<object?>(new CallLlmOutput
+                    {
+                        IsFinal = false,
+                        FunctionCalls = [new WorkflowFunctionCall { CallId = "c1", Name = "load_skill", ArgumentsJson = "{}" }]
+                    });
+                }
+
+                return Task.FromResult<object?>(new CallLlmOutput { IsFinal = true, Text = "final" });
+            }
+
+            // ExecuteToolActivity
+            return Task.FromResult<object?>(new ExecuteToolOutput { CallId = "c1", FunctionName = "load_skill", ResultJson = "\"skill content\"" });
+        });
+
+        var workflow = new AgentRunWorkflow();
+        var invocation = new DaprAgentInvocation("alpha", "use a skill", null, null);
+
+        await workflow.RunAsync(context, invocation);
+
+        Assert.Equal(2, capturedLlmInputs.Count);
+        Assert.All(capturedLlmInputs, i => Assert.Equal("You have access to skills.", i.AdditionalInstructions));
+        Assert.All(capturedLlmInputs, i => Assert.Equal(["load_skill"], i.AdditionalToolNames));
+        Assert.All(capturedLlmInputs, i => Assert.Same(agentContext.Messages, i.AdditionalMessages));
+    }
+
+    [Fact]
+    public async Task RunAsync_CallsCompleteAgentContextActivity_WithRequestAndResponseMessages()
+    {
+        CompleteAgentContextInput? capturedInput = null;
+
+        var context = new TestWorkflowContext("workflow-ctx-3", (name, input) =>
+        {
+            if (name == nameof(ResolveAgentContextActivity))
+            {
+                return Task.FromResult<object?>(new ResolveAgentContextOutput());
+            }
+
+            if (name == nameof(CompleteAgentContextActivity))
+            {
+                capturedInput = (CompleteAgentContextInput)input!;
+                return Task.FromResult<object?>(new CompleteAgentContextOutput());
+            }
+
+            return Task.FromResult<object?>(new CallLlmOutput { IsFinal = true, Text = "final answer" });
+        });
+
+        var workflow = new AgentRunWorkflow();
+        var invocation = new DaprAgentInvocation("alpha", "hi there", null, null);
+
+        await workflow.RunAsync(context, invocation);
+
+        Assert.NotNull(capturedInput);
+        Assert.Null(capturedInput!.ErrorMessage);
+        Assert.Single(capturedInput.RequestMessages);
+        Assert.Equal("hi there", capturedInput.RequestMessages[0].Content);
+        Assert.NotNull(capturedInput.ResponseMessages);
+        Assert.Contains(capturedInput.ResponseMessages!, m => m.Role == "assistant" && m.Content == "final answer");
+    }
+
+    [Fact]
+    public async Task RunAsync_LlmError_StillCallsCompleteAgentContextActivity_WithErrorMessage_AndRethrows()
+    {
+        CompleteAgentContextInput? capturedInput = null;
+
+        var context = new TestWorkflowContext("workflow-ctx-4", (name, input) =>
+        {
+            if (name == nameof(ResolveAgentContextActivity))
+            {
+                return Task.FromResult<object?>(new ResolveAgentContextOutput());
+            }
+
+            if (name == nameof(CompleteAgentContextActivity))
+            {
+                capturedInput = (CompleteAgentContextInput)input!;
+                return Task.FromResult<object?>(new CompleteAgentContextOutput());
+            }
+
+            return Task.FromResult<object?>(new CallLlmOutput { Error = "boom" });
+        });
+
+        var workflow = new AgentRunWorkflow();
+        var invocation = new DaprAgentInvocation("alpha", "hi there", null, null);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => workflow.RunAsync(context, invocation));
+
+        Assert.Contains("boom", ex.Message);
+        Assert.NotNull(capturedInput);
+        Assert.Contains("boom", capturedInput!.ErrorMessage);
     }
 }

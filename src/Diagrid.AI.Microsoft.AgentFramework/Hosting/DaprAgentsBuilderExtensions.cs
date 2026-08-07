@@ -10,6 +10,7 @@
 // On the Change Date, this software will be available under
 // the Apache License, Version 2.0.
 
+using System.Diagnostics.CodeAnalysis;
 using Dapr.AI.Microsoft.Extensions;
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
@@ -41,6 +42,107 @@ public static class DaprAgentsBuilderExtensions
         }
 
         throw new InvalidOperationException("The agents builder does not support explicit registrations.");
+    }
+
+    // =========================================================================
+    // AIContextProviders / Skills
+    //
+    // A key aspect of Skills support (https://github.com/diagridio/dotnet-ai/issues/34) is making
+    // sure that AIContextProviders registered at startup are passed through to the context-provider
+    // pipeline that ResolveAgentContextActivity/CompleteAgentContextActivity run once per agent run.
+    // WithContextProviders is the general-purpose entry point (stable — AIContextProvider itself
+    // carries no MAF experimental marker); WithSkills is sugar over an MAF AgentSkillsProvider,
+    // which IS marked [Experimental("MAAI001")] upstream, so these overloads propagate that marker.
+    // =========================================================================
+
+    /// <summary>
+    /// Attaches one or more <see cref="AIContextProvider"/> instances (e.g. an MAF
+    /// <c>AgentSkillsProvider</c>, a memory provider, etc.) to the named agent. Their contributed
+    /// instructions/messages/tools are resolved once per run and made available throughout that run
+    /// — see <c>ResolveAgentContextActivity</c>.
+    /// </summary>
+    /// <param name="builder">The agents builder.</param>
+    /// <param name="agentName">The name of the agent to attach the providers to.</param>
+    /// <param name="contextProviders">The context providers to attach.</param>
+    /// <returns>The agents builder.</returns>
+    /// <remarks>
+    /// Can be called before or after <c>WithAgent(...)</c> for the same agent name — the providers
+    /// are attached lazily, when the agent is first materialized.
+    /// </remarks>
+    public static IAgentsBuilder WithContextProviders(
+        this IAgentsBuilder builder,
+        string agentName,
+        IReadOnlyList<AIContextProvider> contextProviders)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentName);
+        ArgumentNullException.ThrowIfNull(contextProviders);
+
+        var services = GetServices(builder);
+        services.AddSingleton(new ContextProviderRegistration(agentName, contextProviders));
+
+        return builder;
+    }
+
+    /// <summary>
+    /// Attaches one or more <see cref="AIContextProvider"/> instances to the named agent.
+    /// </summary>
+    /// <param name="builder">The agents builder.</param>
+    /// <param name="agentName">The name of the agent to attach the providers to.</param>
+    /// <param name="contextProviders">The context providers to attach.</param>
+    /// <returns>The agents builder.</returns>
+    public static IAgentsBuilder WithContextProviders(
+        this IAgentsBuilder builder,
+        string agentName,
+        params AIContextProvider[] contextProviders) =>
+        WithContextProviders(builder, agentName, (IReadOnlyList<AIContextProvider>)contextProviders);
+
+    /// <summary>
+    /// Attaches an MAF skills provider built from the given <see cref="AgentSkill"/> instances to the
+    /// named agent — covers file-based (<c>AgentFileSkill</c>, via <c>AgentSkillsProvider(skillPath)</c>
+    /// on the other overload), inline (<see cref="AgentInlineSkill"/>), and class-based
+    /// (<c>AgentClassSkill&lt;T&gt;</c>) skill sources, since they all derive from <see cref="AgentSkill"/>.
+    /// </summary>
+    /// <param name="builder">The agents builder.</param>
+    /// <param name="agentName">The name of the agent to attach the skills to.</param>
+    /// <param name="skills">The skills to make available to the agent.</param>
+    /// <returns>The agents builder.</returns>
+    [Experimental("MAAI001")]
+    public static IAgentsBuilder WithSkills(
+        this IAgentsBuilder builder,
+        string agentName,
+        params AgentSkill[] skills)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentName);
+        ArgumentNullException.ThrowIfNull(skills);
+
+        return builder.WithContextProviders(agentName, new AgentSkillsProvider(skills));
+    }
+
+    /// <summary>
+    /// Attaches an MAF skills provider to the named agent, built via <see cref="AgentSkillsProviderBuilder"/>.
+    /// Use this overload to mix file-based, inline, and class-based skill sources, configure script
+    /// approval (<c>UseScriptApproval()</c>), a custom file script runner, filters, or prompt template.
+    /// </summary>
+    /// <param name="builder">The agents builder.</param>
+    /// <param name="agentName">The name of the agent to attach the skills to.</param>
+    /// <param name="configureSkills">Callback to configure the <see cref="AgentSkillsProviderBuilder"/>.</param>
+    /// <returns>The agents builder.</returns>
+    [Experimental("MAAI001")]
+    public static IAgentsBuilder WithSkills(
+        this IAgentsBuilder builder,
+        string agentName,
+        Action<AgentSkillsProviderBuilder> configureSkills)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentName);
+        ArgumentNullException.ThrowIfNull(configureSkills);
+
+        var skillsBuilder = new AgentSkillsProviderBuilder();
+        configureSkills(skillsBuilder);
+
+        return builder.WithContextProviders(agentName, skillsBuilder.Build());
     }
 
     /// <summary>
@@ -366,15 +468,19 @@ public static class DaprAgentsBuilderExtensions
 
         string? instructions = null;
         IList<AITool>? tools = null;
+        IReadOnlyList<AIContextProvider>? contextProviders = null;
 
         if (agent is ChatClientAgent cca)
         {
             instructions = cca.Instructions;
             tools = DaprAgentsBuilder.GetAgentChatOptions(cca)?.Tools;
+            // Picks up AIContextProviders set via ChatClientAgentOptions (e.g. an MAF
+            // AgentSkillsProvider) with no extra API needed for this (generic factory) path.
+            contextProviders = cca.AIContextProviders is { Count: > 0 } ? cca.AIContextProviders : null;
         }
 
         var chatClientRegistry = sp.GetRequiredService<ChatClientRegistry>();
-        chatClientRegistry.Register(agentName, WrapIfNeeded(rawChatClient), instructions, tools);
+        chatClientRegistry.Register(agentName, WrapIfNeeded(rawChatClient), instructions, tools, contextProviders);
 
         var toolRegistry = sp.GetRequiredService<ToolRegistry>();
         if (tools is { Count: > 0 })

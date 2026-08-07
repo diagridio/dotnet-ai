@@ -25,10 +25,19 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 /// Each tool invocation is checkpointed by Dapr Workflows — on crash recovery, completed
 /// tool activities are NOT re-executed.
 /// </summary>
+/// <remarks>
+/// Tools contributed by an <c>AIContextProvider</c> (e.g. an MAF skills provider's
+/// <c>read_skill_resource</c>) are registered into <see cref="ToolRegistry"/> exactly like
+/// user-defined tools by <see cref="ResolveAgentContextActivity"/>, so they're resolved and invoked
+/// here without any special-casing. The one exception is a tool wrapped as
+/// <see cref="ApprovalRequiredAIFunction"/> (e.g. a skill script when script approval is enabled),
+/// which is gated by <see cref="IToolApprovalHandler"/> before being invoked.
+/// </remarks>
 internal sealed partial class ExecuteToolActivity(
     ToolRegistry toolRegistry,
     AgentRegistry agentRegistry,
     IDaprAgentContextAccessor contextAccessor,
+    IToolApprovalHandler approvalHandler,
     DaprWorkflowClient workflowClient,
     IServiceProvider serviceProvider,
     ILogger<ExecuteToolActivity> logger) : WorkflowActivity<ExecuteToolInput, ExecuteToolOutput>
@@ -61,6 +70,33 @@ internal sealed partial class ExecuteToolActivity(
                 "Ensure the agent was registered with tools via AddDaprAgents().WithAgent(...).");
         }
 
+        if (fn is ApprovalRequiredAIFunction)
+        {
+            var decision = await approvalHandler.RequestApprovalAsync(
+                new ToolApprovalRequest(input.AgentName, input.FunctionName, input.CallId, input.ArgumentsJson),
+                CancellationToken.None).ConfigureAwait(false);
+
+            if (!decision.Approved)
+            {
+                LogToolCallDenied(input.AgentName, input.FunctionName, decision.Reason);
+
+                // A denial is reported back as a normal tool result (not an exception) so the LLM
+                // can react gracefully instead of the whole agent run failing.
+                return new ExecuteToolOutput
+                {
+                    CallId = input.CallId,
+                    FunctionName = input.FunctionName,
+                    ResultJson = JsonSerializer.Serialize(new
+                    {
+                        approved = false,
+                        reason = decision.Reason ?? "The tool call was not approved."
+                    })
+                };
+            }
+
+            LogToolCallApproved(input.AgentName, input.FunctionName);
+        }
+
         // Safe for concurrent activities: DaprAgentContextAccessor uses AsyncLocal,
         // so each activity's async flow sees its own value (see DaprAgentContextAccessor remarks).
         contextAccessor.Current = new DaprAgentContext(workflowClient, context.InstanceId);
@@ -71,6 +107,10 @@ internal sealed partial class ExecuteToolActivity(
                 ? new AIFunctionArguments(rawArgs.ToDictionary<KeyValuePair<string, JsonElement>, string, object?>(
                     kv => kv.Key, kv => kv.Value))
                 : new AIFunctionArguments();
+
+            // Required by MAF's skill tools (e.g. read_skill_resource, run_skill_script), which
+            // resolve services such as the file system/script runner through AIFunctionArguments.Services.
+            functionArgs.Services = serviceProvider;
 
             var result = await fn.InvokeAsync(functionArgs, CancellationToken.None).ConfigureAwait(false);
             var resultJson = JsonSerializer.Serialize(result);
@@ -107,4 +147,10 @@ internal sealed partial class ExecuteToolActivity(
 
     [LoggerMessage(LogLevel.Error, "Tool '{FunctionName}' for agent '{AgentName}' failed: {ErrorMessage}")]
     private partial void LogToolError(string agentName, string functionName, string errorMessage);
+
+    [LoggerMessage(LogLevel.Warning, "Tool call '{FunctionName}' for agent '{AgentName}' was denied: {Reason}")]
+    private partial void LogToolCallDenied(string agentName, string functionName, string? reason);
+
+    [LoggerMessage(LogLevel.Information, "Tool call '{FunctionName}' for agent '{AgentName}' was approved")]
+    private partial void LogToolCallApproved(string agentName, string functionName);
 }

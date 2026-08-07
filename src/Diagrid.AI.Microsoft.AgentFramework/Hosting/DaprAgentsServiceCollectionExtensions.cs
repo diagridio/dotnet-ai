@@ -18,6 +18,7 @@ using Dapr.Workflow;
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.Hosting;
 
@@ -51,6 +52,11 @@ public static class DaprAgentsServiceCollectionExtensions
         services.AddSingleton<IDaprAgentContextAccessor, DaprAgentContextAccessor>();
         services.AddSingleton<ChatClientRegistry>();
         services.AddSingleton<ToolRegistry>();
+
+        // Safe-by-default approval gate for tools that require human approval (e.g. an MAF skill
+        // script when AgentSkillsProviderOptions.ScriptApproval is enabled) — denies until a host
+        // registers its own IToolApprovalHandler (register it BEFORE calling AddDaprAgents()).
+        services.TryAddSingleton<IToolApprovalHandler, DenyingToolApprovalHandler>();
 
         // Optional source-generator serialization contracts and Dapr Workflow serializer configuration
         var serializationOptions = new DaprAgentsSerializationOptions();
