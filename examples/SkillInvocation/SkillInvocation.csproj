@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Dapr.Workflow" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\Diagrid.AI.Microsoft.AgentFramework\Diagrid.AI.Microsoft.AgentFramework.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Ship the file-based SKILL.md skills next to the app so they can be discovered at runtime. -->
+        <Content Include="skills\**\*" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+</Project>

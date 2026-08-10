@@ -82,6 +82,36 @@ builder.Services.AddDaprAgents(serializationOptions =>
 var app = builder.Build();
 ```
 
+### Register Agents with Skills
+Skills are portable packages of instructions, resources, and scripts that give an agent
+domain-specific expertise at runtime (complementary to tools). Registered skills are advertised in
+the agent's system prompt and loaded on demand through the `load_skill` and `read_skill_resource`
+tools, which run as durable workflow activities. Skills can be file-based (`SKILL.md`), inline
+(`AgentInlineSkill`), or class-based (`AgentClassSkill<TSelf>`), and mixed via the
+`AgentSkillsProviderBuilder`.
+
+```csharp
+var pirateSkill = new AgentInlineSkill(
+    name: "pirate-speak",
+    description: "Rewrite answers in the voice of a pirate.",
+    instructions: "When loaded, phrase every answer like a pirate. Arr!",
+    license: null, compatibility: null, allowedTools: null,
+    metadata: null, serializerOptions: null, argumentMarshaler: null);
+
+builder.Services.AddDaprAgents()
+    .WithSkills(
+        agentName: "SkilledAssistant",
+        conversationComponentName: "conversation-ollama",
+        instructions: "You are a helpful assistant. Load a skill when a task matches it.",
+        configureSkills: skills => skills
+            .UseFileSkills([Path.Combine(AppContext.BaseDirectory, "skills")])
+            .UseSkill(pirateSkill));
+```
+
+This release supports read-only skill loading (`load_skill` / `read_skill_resource`); bundled script
+execution (`run_skill_script`) and its human-approval gate are not yet wired into the workflow
+runtime, so that tool is not exposed.
+
 ## Using Agents
 Agents can be invoked in a variety of ways. The following examples show the most common approaches.
 

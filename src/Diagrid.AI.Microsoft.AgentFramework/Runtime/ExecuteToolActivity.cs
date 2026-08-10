@@ -72,6 +72,10 @@ internal sealed partial class ExecuteToolActivity(
                     kv => kv.Key, kv => kv.Value))
                 : new AIFunctionArguments();
 
+            // Some tools (e.g. the read_skill_resource / run_skill_script functions contributed by
+            // an AgentSkillsProvider) resolve dependencies from AIFunctionArguments.Services.
+            functionArgs.Services = serviceProvider;
+
             var result = await fn.InvokeAsync(functionArgs, CancellationToken.None).ConfigureAwait(false);
             var resultJson = JsonSerializer.Serialize(result);
 

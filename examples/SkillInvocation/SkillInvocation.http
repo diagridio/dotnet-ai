@@ -1,0 +1,17 @@
+@SkillInvocation_HostAddress = http://localhost:5051
+
+### Ask something that matches the file-based git-workflow skill.
+POST {{SkillInvocation_HostAddress}}/run
+Content-Type: application/json
+
+{
+  "prompt": "How do I create a new branch called feature/login?"
+}
+
+### Ask something that matches the inline pirate-speak skill.
+POST {{SkillInvocation_HostAddress}}/run
+Content-Type: application/json
+
+{
+  "prompt": "Explain what a git branch is, in pirate speak."
+}

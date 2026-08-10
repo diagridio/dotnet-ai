@@ -11,14 +11,18 @@
 // the Apache License, Version 2.0.
 
 using System.Collections.Concurrent;
+using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 
 /// <summary>
-/// Stores per-agent raw <see cref="IChatClient"/> references, instructions, and tool metadata.
+/// Stores per-agent raw <see cref="IChatClient"/> references, instructions, tool metadata,
+/// and any <see cref="AIContextProvider"/> instances (for example an
+/// <c>AgentSkillsProvider</c>) registered alongside the agent.
 /// Used by <see cref="CallLlmActivity"/> to call the LLM directly (without the agent's
-/// <c>FunctionInvokingChatClient</c> wrapper).
+/// <c>FunctionInvokingChatClient</c> wrapper) while still driving the context-provider
+/// pipeline that the bypassed agent-run pipeline would normally run.
 /// </summary>
 internal sealed class ChatClientRegistry
 {
@@ -27,11 +31,16 @@ internal sealed class ChatClientRegistry
     /// <summary>
     /// Registers the chat client configuration for the specified agent.
     /// </summary>
-    public void Register(string agentName, IChatClient chatClient, string? instructions, IList<AITool>? tools)
+    public void Register(
+        string agentName,
+        IChatClient chatClient,
+        string? instructions,
+        IList<AITool>? tools,
+        IReadOnlyList<AIContextProvider>? contextProviders = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentName);
         ArgumentNullException.ThrowIfNull(chatClient);
-        _configs[agentName] = new AgentChatConfig(chatClient, instructions, tools);
+        _configs[agentName] = new AgentChatConfig(chatClient, instructions, tools, contextProviders);
     }
 
     /// <summary>
@@ -46,5 +55,9 @@ internal sealed class ChatClientRegistry
     public bool Contains(string agentName) =>
         _configs.ContainsKey(agentName);
 
-    internal sealed record AgentChatConfig(IChatClient ChatClient, string? Instructions, IList<AITool>? Tools);
+    internal sealed record AgentChatConfig(
+        IChatClient ChatClient,
+        string? Instructions,
+        IList<AITool>? Tools,
+        IReadOnlyList<AIContextProvider>? ContextProviders = null);
 }

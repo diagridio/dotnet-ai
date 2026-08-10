@@ -4,6 +4,7 @@
 
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -31,7 +32,8 @@ public sealed class CallLlmActivityTests
         registry.Register(AgentName, capturingClient, instructions: null, tools: tools);
 
         var agentRegistry = new AgentRegistry(sp, []);
-        var activity = new CallLlmActivity(registry, agentRegistry, sp, NullLogger<CallLlmActivity>.Instance);
+        var activity = new CallLlmActivity(
+            registry, agentRegistry, new ToolRegistry(), sp, NullLogger<CallLlmActivity>.Instance);
 
         return (activity, capturingClient);
     }
@@ -110,7 +112,7 @@ public sealed class CallLlmActivityTests
         registry.Register(AgentName, capturingClient, instructions: "You are helpful.", tools: null);
 
         var activity = new CallLlmActivity(
-            registry, new AgentRegistry(sp, []), sp,
+            registry, new AgentRegistry(sp, []), new ToolRegistry(), sp,
             NullLogger<CallLlmActivity>.Instance);
 
         capturingClient.SetNextResponse(finalText: "ok");
@@ -125,6 +127,82 @@ public sealed class CallLlmActivityTests
         var msgs = capturingClient.LastMessages!;
         Assert.Equal(ChatRole.System, msgs[0].Role);
         Assert.Equal("You are helpful.", msgs[0].Text);
+    }
+
+    // ── Context-provider (skills) pipeline ─────────────────────────────────
+
+    [Fact]
+    public async Task RunAsync_ContextProvider_MergesSkillCatalogIntoSystemMessage()
+    {
+        var (activity, client) = BuildActivityWithSkills();
+        client.SetNextResponse(finalText: "ok");
+
+        var input = new CallLlmInput(AgentName, null,
+        [
+            new WorkflowChatMessage { Role = "user", Content = "hi" }
+        ]);
+
+        await activity.RunAsync(MakeContext(), input);
+
+        var system = client.LastMessages!.Single(m => m.Role == ChatRole.System);
+        Assert.Contains("You are helpful.", system.Text);
+        Assert.Contains("pirate-speak", system.Text);
+    }
+
+    [Fact]
+    public async Task RunAsync_ContextProvider_MergesSkillToolsIntoChatOptions()
+    {
+        var (activity, client) = BuildActivityWithSkills();
+        client.SetNextResponse(finalText: "ok");
+
+        var input = new CallLlmInput(AgentName, null,
+        [
+            new WorkflowChatMessage { Role = "user", Content = "hi" }
+        ]);
+
+        await activity.RunAsync(MakeContext(), input);
+
+        Assert.NotNull(client.LastOptions?.Tools);
+        Assert.Contains(client.LastOptions!.Tools!, t => t.Name == "load_skill");
+        Assert.Contains(client.LastOptions!.Tools!, t => t.Name == "read_skill_resource");
+        Assert.DoesNotContain(client.LastOptions!.Tools!, t => t.Name == "run_skill_script");
+    }
+
+    private static (CallLlmActivity Activity, CapturingChatClient Client) BuildActivityWithSkills()
+    {
+        var sp = new EmptyServiceProvider();
+        var capturingClient = new CapturingChatClient();
+
+        var provider = new AgentSkillsProviderBuilder()
+            .UseSkill(new AgentInlineSkill(
+                name: "pirate-speak",
+                description: "Talk like a pirate",
+                instructions: "Always answer like a pirate.",
+                license: null,
+                compatibility: null,
+                allowedTools: null,
+                metadata: null,
+                serializerOptions: null,
+                argumentMarshaler: null))
+            .UseOptions(o =>
+            {
+                o.DisableLoadSkillApproval = true;
+                o.DisableReadSkillResourceApproval = true;
+            })
+            .Build();
+
+        var registry = new ChatClientRegistry();
+        registry.Register(AgentName, capturingClient, instructions: "You are helpful.", tools: null,
+            contextProviders: [provider]);
+
+        var agent = capturingClient.AsAIAgent(instructions: "You are helpful.", name: AgentName);
+        var agentRegistry = new AgentRegistry(sp,
+            [new AgentFactoryRegistration(_ => agent) { Name = AgentName }]);
+
+        var activity = new CallLlmActivity(
+            registry, agentRegistry, new ToolRegistry(), sp, NullLogger<CallLlmActivity>.Instance);
+
+        return (activity, capturingClient);
     }
 
     [Fact]
