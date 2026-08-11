@@ -82,6 +82,50 @@ builder.Services.AddDaprAgents(serializationOptions =>
 var app = builder.Build();
 ```
 
+### Register Agents with Skills
+Skills are portable packages of instructions, resources, and scripts that give an agent
+domain-specific expertise at runtime (complementary to tools). Registered skills are advertised in
+the agent's system prompt and loaded on demand through the `load_skill` and `read_skill_resource`
+tools, which run as durable workflow activities like any other tool.
+
+Skills can be sourced three ways and freely mixed via the `AgentSkillsProviderBuilder`:
+- **File-based** — every `SKILL.md` discovered under a directory (`UseFileSkills`)
+- **Inline** — defined in code with `AgentInlineSkill` (`UseSkill`)
+- **Class-based** — encapsulated in a class deriving from `AgentClassSkill<TSelf>` (`UseSkill`)
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddDaprConversationClient();
+
+var pirateSkill = new AgentInlineSkill(
+    name: "pirate-speak",
+    description: "Rewrite answers in the voice of a pirate.",
+    instructions: "When loaded, phrase every answer like a pirate. Arr!",
+    license: null, compatibility: null, allowedTools: null,
+    metadata: null, serializerOptions: null, argumentMarshaler: null);
+
+builder.Services.AddDaprAgents()
+    .WithSkills(
+        agentName: "SkilledAssistant",
+        conversationComponentName: "conversation-ollama",
+        instructions: "You are a helpful assistant. Load a skill when a task matches it.",
+        configureSkills: skills => skills
+            .UseFileSkills([Path.Combine(AppContext.BaseDirectory, "skills")]) // SKILL.md directories
+            .UseSkill(pirateSkill));                                           // inline skill
+
+var app = builder.Build();
+```
+
+Under the hood, the registered skills provider is a Microsoft Agent Framework `AIContextProvider`.
+Because agents here run atop Dapr Workflows (each LLM call and tool call is a durable activity), the
+provider is driven explicitly on every turn so its skill catalog and tools are injected into the
+request, and the skill tools are executed as checkpointed activities.
+
+> **Note:** This release supports read-only skill loading (`load_skill` / `read_skill_resource`).
+> Bundled script execution (`run_skill_script`) and its human-approval gate are not yet wired into
+> the workflow runtime, so that tool is not exposed. A full working sample is in
+> [`examples/SkillInvocation`](examples/SkillInvocation).
+
 ## Using Agents
 Agents can be invoked in a variety of ways. The following examples show the most common approaches.
 

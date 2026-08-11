@@ -352,6 +352,120 @@ public static class DaprAgentsBuilderExtensions
     }
 
     /// <summary>
+    /// Registers a keyed <see cref="DaprChatClient"/> and a named agent that uses it, with a set of
+    /// skills. Skills are portable packages of instructions, resources, and scripts that give the
+    /// agent domain-specific expertise at runtime. They are advertised in the agent's system prompt
+    /// and loaded on demand through the <c>load_skill</c> / <c>read_skill_resource</c> tools, which
+    /// run as durable workflow activities like any other tool.
+    /// </summary>
+    /// <param name="builder">The agents builder.</param>
+    /// <param name="agentName">The explicit agent name used for registration.</param>
+    /// <param name="conversationComponentName">The name of the Dapr Conversation component.</param>
+    /// <param name="instructions">The system instructions/prompt for the agent.</param>
+    /// <param name="configureSkills">
+    /// Configures the <see cref="AgentSkillsProviderBuilder"/> — for example
+    /// <c>b =&gt; b.UseFileSkills(paths).UseSkill(inlineSkill)</c> to mix file-based
+    /// (<c>SKILL.md</c>), inline (<c>AgentInlineSkill</c>), and class-based
+    /// (<c>AgentClassSkill&lt;T&gt;</c>) skills.
+    /// </param>
+    /// <param name="description">The optional agent description.</param>
+    /// <param name="tools">Additional tools available to the agent, beyond those contributed by skills.</param>
+    /// <param name="configure">An optional <see cref="Action{T}"/> to configure the chat client options.</param>
+    /// <param name="serviceLifetime">The <see cref="ServiceLifetime"/> of the chat client service.</param>
+    /// <returns>The agents builder.</returns>
+    public static IAgentsBuilder WithSkills(
+        this IAgentsBuilder builder,
+        string agentName,
+        string conversationComponentName,
+        string instructions,
+        Action<AgentSkillsProviderBuilder> configureSkills,
+        string? description = null,
+        IReadOnlyList<AITool>? tools = null,
+        Action<DaprChatClientOptions>? configure = null,
+        ServiceLifetime serviceLifetime = ServiceLifetime.Scoped)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(conversationComponentName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(instructions);
+        ArgumentNullException.ThrowIfNull(configureSkills);
+
+        var services = GetServices(builder);
+        services.AddDaprChatClient(conversationComponentName, conversationComponentName, configure, serviceLifetime);
+
+        return builder.WithAgent(new AgentFactoryRegistration(sp =>
+        {
+            var chatClient = sp.GetRequiredKeyedService<IChatClient>(conversationComponentName);
+            var skillsProvider = BuildSkillsProvider(configureSkills);
+            var contextProviders = new AIContextProvider[] { skillsProvider };
+
+            var chatOptions = new ChatOptions { Instructions = instructions };
+            if (tools is { Count: > 0 })
+            {
+                chatOptions.Tools = [.. tools];
+            }
+
+            var agentOptions = new ChatClientAgentOptions
+            {
+                Name = agentName,
+                Description = description,
+                ChatOptions = chatOptions,
+                AIContextProviders = contextProviders,
+            };
+
+            var agent = chatClient.AsAIAgent(agentOptions);
+
+            // Register for the per-activity workflow path — the raw chat client, instructions,
+            // tools, and skills provider so CallLlmActivity can drive the context-provider
+            // pipeline and ExecuteToolActivity can run the skill tools.
+            RegisterAgentComponents(sp, agentName, chatClient, instructions, tools, contextProviders, agent);
+
+            return agent;
+        })
+        {
+            Name = agentName,
+            ChatClientKey = conversationComponentName,
+        });
+    }
+
+    /// <summary>
+    /// Builds an <see cref="AgentSkillsProvider"/> from the caller's configuration. Read-only skill
+    /// tools (<c>load_skill</c> / <c>read_skill_resource</c>) have their approval requirement
+    /// disabled because the durable runtime executes tools directly and does not yet perform the
+    /// human-approval round-trip; <c>run_skill_script</c> remains approval-gated and is not exposed
+    /// until that gate is implemented.
+    /// </summary>
+    private static AgentSkillsProvider BuildSkillsProvider(Action<AgentSkillsProviderBuilder> configureSkills)
+    {
+        var skillsBuilder = new AgentSkillsProviderBuilder();
+
+        // File-based skills require a script runner to be present even when no script is ever run.
+        // Provide a disabled default (script execution is a later phase); the caller may override it
+        // inside configureSkills. run_skill_script is not exposed today, so this never executes.
+        skillsBuilder.UseFileScriptRunner(ScriptExecutionDisabledRunner);
+
+        configureSkills(skillsBuilder);
+
+        skillsBuilder.UseOptions(options =>
+        {
+            options.DisableLoadSkillApproval = true;
+            options.DisableReadSkillResourceApproval = true;
+        });
+
+        return skillsBuilder.Build();
+    }
+
+    private static Task<object?> ScriptExecutionDisabledRunner(
+        AgentFileSkill skill,
+        AgentFileSkillScript script,
+        System.Text.Json.JsonElement? arguments,
+        IServiceProvider? serviceProvider,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException(
+            "Skill script execution is not enabled. The run_skill_script tool and its human-approval " +
+            "gate are not yet supported by the Dapr Workflow runtime.");
+
+    /// <summary>
     /// Extracts the <see cref="IChatClient"/>, instructions, and tools from a
     /// <see cref="ChatClientAgent"/> and registers them in the <see cref="ChatClientRegistry"/>
     /// and <see cref="ToolRegistry"/> so the workflow can call them as separate activities.
@@ -393,22 +507,43 @@ public static class DaprAgentsBuilderExtensions
     /// Registers components using explicitly provided values — no reflection or
     /// <c>[UnsafeAccessor]</c> needed since the caller already has the raw values.
     /// </summary>
+    /// <param name="sp">The service provider.</param>
+    /// <param name="agentName">The agent name.</param>
+    /// <param name="rawChatClient">The raw chat client to call the LLM with.</param>
+    /// <param name="instructions">The agent's system instructions.</param>
+    /// <param name="tools">The agent's tools, if any.</param>
+    /// <param name="contextProviders">
+    /// The <see cref="AIContextProvider"/> instances (e.g. an <c>AgentSkillsProvider</c>) attached
+    /// to the agent, if any.
+    /// </param>
+    /// <param name="agent">
+    /// The materialized agent, required only when <paramref name="contextProviders"/> is non-empty
+    /// so their contributed tools can be discovered and registered.
+    /// </param>
     private static void RegisterAgentComponents(
         IServiceProvider sp,
         string agentName,
         IChatClient rawChatClient,
         string? instructions,
-        IReadOnlyList<AITool>? tools)
+        IReadOnlyList<AITool>? tools,
+        IReadOnlyList<AIContextProvider>? contextProviders = null,
+        AIAgent? agent = null)
     {
         if (string.IsNullOrWhiteSpace(agentName))
             return;
 
         var chatClientRegistry = sp.GetRequiredService<ChatClientRegistry>();
-        chatClientRegistry.Register(agentName, WrapIfNeeded(rawChatClient), instructions, tools as IList<AITool> ?? tools?.ToList());
+        chatClientRegistry.Register(
+            agentName,
+            WrapIfNeeded(rawChatClient),
+            instructions,
+            tools as IList<AITool> ?? tools?.ToList(),
+            contextProviders);
+
+        var toolRegistry = sp.GetRequiredService<ToolRegistry>();
 
         if (tools is { Count: > 0 })
         {
-            var toolRegistry = sp.GetRequiredService<ToolRegistry>();
             foreach (var tool in tools)
             {
                 if (tool is AIFunction fn)
@@ -416,6 +551,18 @@ public static class DaprAgentsBuilderExtensions
                     toolRegistry.Register(agentName, fn);
                 }
             }
+        }
+
+        if (contextProviders is { Count: > 0 } && agent is not null)
+        {
+            // Discover and register the invokable tools contributed by context providers (e.g. an
+            // AgentSkillsProvider's load_skill / read_skill_resource functions) so that
+            // ExecuteToolActivity can resolve them — including after a workflow replay in a fresh
+            // process, where the agent factory (and hence this method) runs again.
+            ContextProviderPipeline
+                .InvokeAsync(agentName, agent, contextProviders, toolRegistry, CancellationToken.None)
+                .GetAwaiter()
+                .GetResult();
         }
     }
 

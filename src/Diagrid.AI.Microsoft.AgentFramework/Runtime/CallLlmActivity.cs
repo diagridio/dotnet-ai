@@ -25,6 +25,7 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 internal sealed partial class CallLlmActivity(
     ChatClientRegistry chatClientRegistry,
     AgentRegistry agentRegistry,
+    ToolRegistry toolRegistry,
     IServiceProvider serviceProvider,
     ILogger<CallLlmActivity> logger) : WorkflowActivity<CallLlmInput, CallLlmOutput>
 {
@@ -54,11 +55,25 @@ internal sealed partial class CallLlmActivity(
 
         try
         {
-            var messages = BuildChatMessages(config.Instructions, input.Messages);
-            var options = BuildChatOptions(config.Tools, input.Options);
+            // Drive the AIContextProvider pipeline (e.g. AgentSkillsProvider). Because this
+            // library bypasses MAF's agent-run pipeline (it calls the raw IChatClient directly),
+            // context providers would never fire otherwise. We invoke them here per LLM call and
+            // merge their contributed instructions/messages/tools into the request.
+            var contribution = await InvokeContextProvidersAsync(config, input, CancellationToken.None)
+                .ConfigureAwait(false);
+
+            var messages = BuildChatMessages(config.Instructions, contribution, input.Messages);
+            var options = BuildChatOptions(config.Tools, contribution, input.Options);
 
             var response = await config.ChatClient.GetResponseAsync(messages, options)
                 .ConfigureAwait(false);
+
+            if (contribution is not null)
+            {
+                // Best-effort post-invocation notification; never fail the turn over it.
+                await NotifyProvidersInvokedAsync(contribution, messages, response, CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
 
             return ParseResponse(response);
         }
@@ -69,13 +84,77 @@ internal sealed partial class CallLlmActivity(
         }
     }
 
-    private static List<ChatMessage> BuildChatMessages(string? instructions, List<WorkflowChatMessage> messages)
+    /// <summary>
+    /// Invokes each registered <see cref="AIContextProvider"/> for the agent and collects the
+    /// instructions, messages, and tools they contribute for this turn. Any contributed invokable
+    /// tool is also registered in the <see cref="ToolRegistry"/> so that a subsequent
+    /// <see cref="ExecuteToolActivity"/> (a separate, possibly replayed activity) can resolve and
+    /// invoke it — for example the <c>load_skill</c> / <c>read_skill_resource</c> tools contributed
+    /// by an <c>AgentSkillsProvider</c>.
+    /// </summary>
+    private async Task<ContextProviderPipeline.Contribution?> InvokeContextProvidersAsync(
+        ChatClientRegistry.AgentChatConfig config,
+        CallLlmInput input,
+        CancellationToken cancellationToken)
+    {
+        if (config.ContextProviders is not { Count: > 0 } providers)
+        {
+            return null;
+        }
+
+        var agent = agentRegistry.Get(input.AgentName, input.ChatClientKey, serviceProvider);
+        return await ContextProviderPipeline
+            .InvokeAsync(input.AgentName, agent, providers, toolRegistry, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task NotifyProvidersInvokedAsync(
+        ContextProviderPipeline.Contribution contribution,
+        List<ChatMessage> requestMessages,
+        ChatResponse response,
+        CancellationToken cancellationToken)
+    {
+        foreach (var provider in contribution.Providers)
+        {
+            try
+            {
+#pragma warning disable MAAI001 // AIContextProvider context types are experimental (evaluation only).
+                var invokedContext = new AIContextProvider.InvokedContext(
+                    contribution.Agent, contribution.Session, requestMessages, response.Messages);
+#pragma warning restore MAAI001
+                await provider.InvokedAsync(invokedContext, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogContextProviderInvokedError(ex.Message);
+            }
+        }
+    }
+
+    private static List<ChatMessage> BuildChatMessages(
+        string? instructions,
+        ContextProviderPipeline.Contribution? contribution,
+        List<WorkflowChatMessage> messages)
     {
         var chatMessages = new List<ChatMessage>();
 
-        if (!string.IsNullOrWhiteSpace(instructions))
+        var systemText = instructions;
+        if (contribution is { Instructions.Count: > 0 })
         {
-            chatMessages.Add(new ChatMessage(ChatRole.System, instructions));
+            var providerInstructions = string.Join("\n\n", contribution.Instructions);
+            systemText = string.IsNullOrWhiteSpace(systemText)
+                ? providerInstructions
+                : $"{systemText}\n\n{providerInstructions}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(systemText))
+        {
+            chatMessages.Add(new ChatMessage(ChatRole.System, systemText));
+        }
+
+        if (contribution is { Messages.Count: > 0 })
+        {
+            chatMessages.AddRange(contribution.Messages);
         }
 
         foreach (var msg in messages)
@@ -86,9 +165,23 @@ internal sealed partial class CallLlmActivity(
         return chatMessages;
     }
 
-    private static ChatOptions? BuildChatOptions(IList<AITool>? tools, AgentRunOptions? agentRunOptions)
+    private static ChatOptions? BuildChatOptions(
+        IList<AITool>? tools,
+        ContextProviderPipeline.Contribution? contribution,
+        AgentRunOptions? agentRunOptions)
     {
-        if (tools is not { Count: > 0 } && agentRunOptions is null)
+        var mergedTools = new List<AITool>();
+        if (tools is { Count: > 0 })
+        {
+            mergedTools.AddRange(tools);
+        }
+
+        if (contribution is { Tools.Count: > 0 })
+        {
+            mergedTools.AddRange(contribution.Tools);
+        }
+
+        if (mergedTools.Count == 0 && agentRunOptions is null)
         {
             return null;
         }
@@ -100,7 +193,7 @@ internal sealed partial class CallLlmActivity(
             AdditionalProperties = agentRunOptions?.AdditionalProperties,
             ContinuationToken = agentRunOptions?.ContinuationToken,
             ResponseFormat = agentRunOptions?.ResponseFormat,
-            Tools = tools is { Count: > 0 } ? [.. tools] : null
+            Tools = mergedTools.Count > 0 ? mergedTools : null
         };
 #pragma warning restore MEAI001
     }
@@ -177,4 +270,7 @@ internal sealed partial class CallLlmActivity(
 
     [LoggerMessage(LogLevel.Error, "LLM call failed for agent '{AgentName}': {ErrorMessage}")]
     private partial void LogLlmCallError(string agentName, string errorMessage);
+
+    [LoggerMessage(LogLevel.Warning, "Context provider InvokedAsync callback failed: {ErrorMessage}")]
+    private partial void LogContextProviderInvokedError(string errorMessage);
 }
