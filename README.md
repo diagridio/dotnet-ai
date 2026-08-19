@@ -116,6 +116,73 @@ public sealed partial class SampleWorkflow : Workflow<string, string>
 }
 ```
 
+## Skills
+Skills are portable packages of instructions, reference material, and scripts that give an agent
+domain-specific expertise at runtime — complementary to Tools. They're discovered via a skills
+provider, advertised by name and description only in the agent's system prompt, and loaded on demand
+through `load_skill`/`read_skill_resource`/`run_skill_script` tool calls, keeping full skill content
+out of every prompt until the agent actually needs it.
+
+> Skills build on MAF's `AgentSkill`/`AgentSkillsProvider` APIs, which are marked
+> `[Experimental("MAAI001")]` upstream (evaluation purposes only) — `WithSkills(...)` carries the same
+> marker.
+
+### Registering skills
+Skills can be sourced three ways — file-based, inline, and class-based — mixed freely on the same
+agent via `AgentSkillsProviderBuilder`:
+
+```csharp
+builder.Services.AddDaprAgents()
+    .WithAgent(
+        agentName: "SkillsAgent",
+        conversationComponentName: "conversation-ollama",
+        instructions: "You are a helpful assistant.",
+        serviceLifetime: ServiceLifetime.Singleton)
+    .WithSkills("SkillsAgent", skills => skills
+        .UseFileSkill("./skills/unit-converter")              // File-based: discovered from SKILL.md
+        .UseSkill(new AgentInlineSkill(                       // Inline: defined directly in code
+            name: "joke-teller",
+            description: "Tells a short, work-appropriate joke on request.",
+            instructions: "When asked for a joke, tell exactly one short, clean joke."))
+        .UseSkill(new GreetingSkill())                        // Class-based: AgentClassSkill<T>
+        .UseScriptApproval());                                // Require approval before running scripts
+
+var app = builder.Build();
+```
+
+A single skill (or a plain list) can also be attached directly, without the builder:
+```csharp
+builder.WithSkills("SkillsAgent", new AgentInlineSkill(name: "...", description: "...", instructions: "..."));
+```
+
+Any `AIContextProvider` — not just skills — can be attached to an agent the same way, via
+`WithContextProviders(...)`.
+
+### Script approval
+Skill-bundled scripts can require human approval before they run
+(`AgentSkillsProviderBuilder.UseScriptApproval()`). Implement `IToolApprovalHandler` and register it
+*before* calling `AddDaprAgents()` to decide whether a given call is allowed to proceed — without one
+registered, every approval-required call is denied by default:
+
+```csharp
+public sealed class SlackApprovalHandler : IToolApprovalHandler
+{
+    public async Task<ToolApprovalDecision> RequestApprovalAsync(ToolApprovalRequest request, CancellationToken ct = default)
+    {
+        // Runs inside a Dapr Workflow *activity*, so it's safe to await a real decision here —
+        // e.g. post to Slack and poll a data store the response updates out of band.
+        var approved = await AwaitHumanDecisionAsync(request, ct);
+        return approved ? ToolApprovalDecision.Approve() : ToolApprovalDecision.Deny("Declined in Slack.");
+    }
+}
+
+builder.Services.AddSingleton<IToolApprovalHandler, SlackApprovalHandler>();
+builder.Services.AddDaprAgents() /* ... */;
+```
+
+See [`examples/SkillsDemo`](https://github.com/diagridio/dotnet-ai/tree/master/examples/SkillsDemo) for
+a complete, runnable example covering all three discovery mechanisms plus script approval.
+
 ## Links
 - [Diagrid](https://diagrid.io/)
 - [Diagrid Documentation](https://docs.diagrid.io/)

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <!-- MAF's Skills API (AgentSkill, AgentSkillsProvider, AgentSkillsProviderBuilder, ...)
+             is marked [Experimental("MAAI001")] upstream — evaluation purposes only for now. -->
+        <NoWarn>$(NoWarn);MAAI001</NoWarn>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Dapr.Workflow" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\Diagrid.AI.Microsoft.AgentFramework\Diagrid.AI.Microsoft.AgentFramework.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- The file-based skill's SKILL.md needs to travel alongside the built app. -->
+        <Content Include="skills\**\*" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+</Project>

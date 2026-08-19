@@ -22,8 +22,16 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 /// Activity that performs a single LLM call. Each invocation is checkpointed by Dapr Workflows,
 /// so on crash recovery the result is replayed without re-executing the LLM call.
 /// </summary>
+/// <remarks>
+/// In addition to the agent's statically-registered instructions/tools (from <see cref="ChatClientRegistry"/>),
+/// this activity layers in the per-run contribution computed once by <see cref="ResolveAgentContextActivity"/>
+/// (<see cref="CallLlmInput.AdditionalInstructions"/>, <see cref="CallLlmInput.AdditionalMessages"/>,
+/// <see cref="CallLlmInput.AdditionalToolNames"/>) so that context providers — e.g. an MAF
+/// <c>AgentSkillsProvider</c> — stay in effect for every LLM call within a single agent run.
+/// </remarks>
 internal sealed partial class CallLlmActivity(
     ChatClientRegistry chatClientRegistry,
+    ToolRegistry toolRegistry,
     AgentRegistry agentRegistry,
     IServiceProvider serviceProvider,
     ILogger<CallLlmActivity> logger) : WorkflowActivity<CallLlmInput, CallLlmOutput>
@@ -54,8 +62,9 @@ internal sealed partial class CallLlmActivity(
 
         try
         {
-            var messages = BuildChatMessages(config.Instructions, input.Messages);
-            var options = BuildChatOptions(config.Tools, input.Options);
+            var messages = BuildChatMessages(config.Instructions, input.AdditionalInstructions, input.AdditionalMessages, input.Messages);
+            var additionalTools = ResolveAdditionalTools(input.AgentName, input.AdditionalToolNames);
+            var options = BuildChatOptions(config.Tools, additionalTools, input.Options);
 
             var response = await config.ChatClient.GetResponseAsync(messages, options)
                 .ConfigureAwait(false);
@@ -69,26 +78,87 @@ internal sealed partial class CallLlmActivity(
         }
     }
 
-    private static List<ChatMessage> BuildChatMessages(string? instructions, List<WorkflowChatMessage> messages)
+    private static List<ChatMessage> BuildChatMessages(
+        string? instructions,
+        string? additionalInstructions,
+        List<WorkflowChatMessage>? additionalMessages,
+        List<WorkflowChatMessage> messages)
     {
         var chatMessages = new List<ChatMessage>();
 
-        if (!string.IsNullOrWhiteSpace(instructions))
+        var combinedInstructions = CombineInstructions(instructions, additionalInstructions);
+        if (!string.IsNullOrWhiteSpace(combinedInstructions))
         {
-            chatMessages.Add(new ChatMessage(ChatRole.System, instructions));
+            chatMessages.Add(new ChatMessage(ChatRole.System, combinedInstructions));
+        }
+
+        // Ephemeral context contributed by AIContextProviders for this run only (e.g. retrieved
+        // memories). Never persisted to TurnMessages/session history — see ResolveAgentContextActivity.
+        if (additionalMessages is { Count: > 0 })
+        {
+            foreach (var msg in additionalMessages)
+            {
+                chatMessages.Add(WorkflowChatMessageConverter.ToChatMessage(msg));
+            }
         }
 
         foreach (var msg in messages)
         {
-            chatMessages.Add(ConvertToChatMessage(msg));
+            chatMessages.Add(WorkflowChatMessageConverter.ToChatMessage(msg));
         }
 
         return chatMessages;
     }
 
-    private static ChatOptions? BuildChatOptions(IList<AITool>? tools, AgentRunOptions? agentRunOptions)
+    private static string? CombineInstructions(string? instructions, string? additionalInstructions)
     {
-        if (tools is not { Count: > 0 } && agentRunOptions is null)
+        if (string.IsNullOrWhiteSpace(instructions))
+        {
+            return additionalInstructions;
+        }
+
+        if (string.IsNullOrWhiteSpace(additionalInstructions))
+        {
+            return instructions;
+        }
+
+        return $"{instructions}\n\n{additionalInstructions}";
+    }
+
+    /// <summary>
+    /// Resolves tool names contributed by <see cref="ResolveAgentContextActivity"/> (e.g. a skills
+    /// provider's <c>load_skill</c>/<c>read_skill_resource</c>/<c>run_skill_script</c>) back into
+    /// <see cref="AITool"/> instances via <see cref="ToolRegistry"/>, where they were registered.
+    /// </summary>
+    private IReadOnlyList<AITool>? ResolveAdditionalTools(string agentName, List<string>? toolNames)
+    {
+        if (toolNames is not { Count: > 0 })
+        {
+            return null;
+        }
+
+        List<AITool>? resolved = null;
+        foreach (var name in toolNames)
+        {
+            var fn = toolRegistry.Get(agentName, name);
+            if (fn is null)
+            {
+                continue;
+            }
+
+            (resolved ??= []).Add(fn);
+        }
+
+        return resolved;
+    }
+
+    private static ChatOptions? BuildChatOptions(
+        IList<AITool>? tools,
+        IReadOnlyList<AITool>? additionalTools,
+        AgentRunOptions? agentRunOptions)
+    {
+        var combinedTools = CombineTools(tools, additionalTools);
+        if (combinedTools is null && agentRunOptions is null)
         {
             return null;
         }
@@ -100,9 +170,32 @@ internal sealed partial class CallLlmActivity(
             AdditionalProperties = agentRunOptions?.AdditionalProperties,
             ContinuationToken = agentRunOptions?.ContinuationToken,
             ResponseFormat = agentRunOptions?.ResponseFormat,
-            Tools = tools is { Count: > 0 } ? [.. tools] : null
+            Tools = combinedTools
         };
 #pragma warning restore MEAI001
+    }
+
+    private static List<AITool>? CombineTools(IList<AITool>? tools, IReadOnlyList<AITool>? additionalTools)
+    {
+        if (tools is not { Count: > 0 } && additionalTools is not { Count: > 0 })
+        {
+            return null;
+        }
+
+        var combined = new List<AITool>(
+            (tools?.Count ?? 0) + (additionalTools?.Count ?? 0));
+
+        if (tools is { Count: > 0 })
+        {
+            combined.AddRange(tools);
+        }
+
+        if (additionalTools is { Count: > 0 })
+        {
+            combined.AddRange(additionalTools);
+        }
+
+        return combined;
     }
 
     private static CallLlmOutput ParseResponse(ChatResponse response)
@@ -128,48 +221,6 @@ internal sealed partial class CallLlmActivity(
                         : "{}"
                 }).ToList()
         };
-    }
-
-    private static ChatMessage ConvertToChatMessage(WorkflowChatMessage msg)
-    {
-        var role = msg.Role switch
-        {
-            "system" => ChatRole.System,
-            "assistant" => ChatRole.Assistant,
-            "tool" => ChatRole.Tool,
-            _ => ChatRole.User
-        };
-
-        var contents = new List<AIContent>();
-
-        if (msg.Content is not null)
-        {
-            contents.Add(new TextContent(msg.Content));
-        }
-
-        if (msg.FunctionCalls is { Count: > 0 })
-        {
-            foreach (var fc in msg.FunctionCalls)
-            {
-                var args = string.IsNullOrEmpty(fc.ArgumentsJson) || fc.ArgumentsJson == "{}"
-                    ? null
-                    : JsonSerializer.Deserialize<Dictionary<string, object?>>(fc.ArgumentsJson);
-                contents.Add(new FunctionCallContent(fc.CallId, fc.Name, args));
-            }
-        }
-
-        if (msg.FunctionResults is { Count: > 0 })
-        {
-            foreach (var fr in msg.FunctionResults)
-            {
-                object? result = fr.ResultJson is not null
-                    ? JsonSerializer.Deserialize<JsonElement>(fr.ResultJson)
-                    : null;
-                contents.Add(new FunctionResultContent(fr.CallId, result));
-            }
-        }
-
-        return new ChatMessage(role, contents);
     }
 
     [LoggerMessage(LogLevel.Information, "Calling LLM for agent '{AgentName}' with {MessageCount} messages")]

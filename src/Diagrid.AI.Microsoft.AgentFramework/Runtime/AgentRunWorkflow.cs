@@ -21,9 +21,11 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 /// is scheduled as a separate Dapr Workflow activity so that on crash recovery, already-completed
 /// activities are NOT replayed.
 /// <list type="number">
+///   <item>Resolve the agent's <c>AIContextProviders</c> once for this run (<see cref="ResolveAgentContextActivity"/>)</item>
 ///   <item>Call the LLM as an activity (<see cref="CallLlmActivity"/>)</item>
 ///   <item>If the LLM returns tool calls, execute each tool as a separate activity (<see cref="ExecuteToolActivity"/>)</item>
 ///   <item>Feed tool results back and loop until the LLM returns a final response</item>
+///   <item>Notify the agent's <c>AIContextProviders</c> that the run has completed (<see cref="CompleteAgentContextActivity"/>)</item>
 /// </list>
 /// </summary>
 public sealed class AgentRunWorkflow : Workflow<DaprAgentInvocation, AgentRunResult>
@@ -45,7 +47,7 @@ public sealed class AgentRunWorkflow : Workflow<DaprAgentInvocation, AgentRunRes
         {
             messages.AddRange(input.PriorMessages);
         }
-        
+
         // Track where this turn's messages start
         var turnStartIndex = messages.Count;
 
@@ -53,84 +55,139 @@ public sealed class AgentRunWorkflow : Workflow<DaprAgentInvocation, AgentRunRes
             new WorkflowChatMessage { Role = "user", Content = input.Message }
         );
 
-        for (var iteration = 0; iteration < MaxIterations; iteration++)
+        // The messages that make up "the request" for this run (used by the Invoked phase of the
+        // AIContextProvider pipeline for notification purposes). Captured once, before the loop
+        // grows `messages` with assistant/tool turns.
+        var turnRequestMessages = messages.Skip(turnStartIndex).ToList();
+
+        // Resolve AIContextProviders (e.g. an MAF AgentSkillsProvider) once per run — analogous to
+        // what ChatClientAgent.RunAsync does internally before delegating to FunctionInvokingChatClient.
+        // A no-op (near-instant) activity call when the agent has no context providers configured.
+        var agentContext = await context.CallActivityAsync<ResolveAgentContextOutput>(
+            nameof(ResolveAgentContextActivity),
+            new ResolveAgentContextInput(input.AgentName, input.ChatClientKey, input.TelemetryBaggage));
+
+        try
         {
-            // Activity: Call the LLM once.
-            var llmInput = new CallLlmInput(
-                input.AgentName,
-                input.ChatClientKey,
-                messages,
-                input.Options,
-                input.TelemetryBaggage);
-            var llmOutput = await context.CallActivityAsync<CallLlmOutput>(
-                nameof(CallLlmActivity), llmInput);
-
-            if (llmOutput.Error is not null)
+            for (var iteration = 0; iteration < MaxIterations; iteration++)
             {
-                throw new InvalidOperationException(
-                    $"LLM call failed for agent '{input.AgentName}': {llmOutput.Error}");
-            }
+                // Activity: Call the LLM once.
+                var llmInput = new CallLlmInput(
+                    input.AgentName,
+                    input.ChatClientKey,
+                    messages,
+                    input.Options,
+                    input.TelemetryBaggage)
+                {
+                    AdditionalInstructions = agentContext.Instructions,
+                    AdditionalMessages = agentContext.Messages,
+                    AdditionalToolNames = agentContext.ToolNames
+                };
+                var llmOutput = await context.CallActivityAsync<CallLlmOutput>(
+                    nameof(CallLlmActivity), llmInput);
 
-            // If this is a final response (no tool calls), we're done.
-            if (llmOutput.IsFinal)
-            {
-                // Add the final assistant message
+                if (llmOutput.Error is not null)
+                {
+                    throw new InvalidOperationException(
+                        $"LLM call failed for agent '{input.AgentName}': {llmOutput.Error}");
+                }
+
+                // If this is a final response (no tool calls), we're done.
+                if (llmOutput.IsFinal)
+                {
+                    // Add the final assistant message
+                    messages.Add(new WorkflowChatMessage
+                    {
+                        Role = "assistant",
+                        Content = llmOutput.Text
+                    });
+
+                    await NotifyAgentContextCompleteAsync(context, input, messages, turnStartIndex, turnRequestMessages, errorMessage: null);
+
+                    return new AgentRunResult
+                    {
+                        Response = new AgentResponse(new ChatMessage(ChatRole.Assistant, llmOutput.Text ?? string.Empty)),
+                        TurnMessages = messages.Skip(turnStartIndex).ToList()
+                    };
+                }
+
+                // Tool-call loop
                 messages.Add(new WorkflowChatMessage
                 {
                     Role = "assistant",
-                    Content = llmOutput.Text
+                    Content = llmOutput.Text,
+                    FunctionCalls = llmOutput.FunctionCalls
                 });
 
-                return new AgentRunResult
+                // Activity: Execute each tool call as a separate activity.
+                var toolResults = new List<ExecuteToolOutput>();
+                foreach (var fc in llmOutput.FunctionCalls!)
                 {
-                    Response = new AgentResponse(new ChatMessage(ChatRole.Assistant, llmOutput.Text ?? string.Empty)),
-                    TurnMessages = messages.Skip(turnStartIndex).ToList()
-                };
-            }
-            
-            // Tool-call loop
-            messages.Add(new WorkflowChatMessage
-            {
-                Role = "assistant",
-                Content = llmOutput.Text,
-                FunctionCalls = llmOutput.FunctionCalls
-            });
+                    var toolInput = new ExecuteToolInput(
+                        input.AgentName,
+                        fc.Name,
+                        fc.CallId,
+                        fc.ArgumentsJson,
+                        input.TelemetryBaggage);
+                    var toolOutput = await context.CallActivityAsync<ExecuteToolOutput>(
+                        nameof(ExecuteToolActivity), toolInput);
+                    toolResults.Add(toolOutput);
+                }
 
-            // Activity: Execute each tool call as a separate activity.
-            var toolResults = new List<ExecuteToolOutput>();
-            foreach (var fc in llmOutput.FunctionCalls!)
-            {
-                var toolInput = new ExecuteToolInput(
-                    input.AgentName,
-                    fc.Name,
-                    fc.CallId,
-                    fc.ArgumentsJson,
-                    input.TelemetryBaggage);
-                var toolOutput = await context.CallActivityAsync<ExecuteToolOutput>(
-                    nameof(ExecuteToolActivity), toolInput);
-                toolResults.Add(toolOutput);
+                // Add tool results to the conversation.
+                messages.Add(new WorkflowChatMessage
+                {
+                    Role = "tool",
+                    FunctionResults = toolResults.Select(r => new WorkflowFunctionResult
+                    {
+                        CallId = r.CallId,
+                        Name = r.FunctionName,
+                        ResultJson = r.ResultJson
+                    }).ToList()
+                });
             }
 
-            // Add tool results to the conversation.
-            messages.Add(new WorkflowChatMessage
+            var maxIterationResponse = new AgentResponse(new ChatMessage(ChatRole.Assistant,
+                $"Agent '{input.AgentName}' exceeded the maximum of {MaxIterations} iterations without producing a final response."));
+
+            await NotifyAgentContextCompleteAsync(context, input, messages, turnStartIndex, turnRequestMessages, errorMessage: null);
+
+            return new AgentRunResult
             {
-                Role = "tool",
-                FunctionResults = toolResults.Select(r => new WorkflowFunctionResult
-                {
-                    CallId = r.CallId,
-                    Name = r.FunctionName,
-                    ResultJson = r.ResultJson
-                }).ToList()
-            });
+                Response = maxIterationResponse,
+                TurnMessages = messages.Skip(turnStartIndex).ToList()
+            };
         }
-
-        var maxIterationResponse = new AgentResponse(new ChatMessage(ChatRole.Assistant,
-            $"Agent '{input.AgentName}' exceeded the maximum of {MaxIterations} iterations without producing a final response."));
-
-        return new AgentRunResult
+        catch (Exception ex)
         {
-            Response = maxIterationResponse,
-            TurnMessages = messages.Skip(turnStartIndex).ToList()
-        };
+            await NotifyAgentContextCompleteAsync(context, input, messages, turnStartIndex, turnRequestMessages, errorMessage: ex.Message);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Notifies the agent's <c>AIContextProviders</c> that this run has completed, successfully or
+    /// not (<see cref="CompleteAgentContextActivity"/>). A no-op (near-instant) activity call when
+    /// the agent has no context providers configured.
+    /// </summary>
+    private static Task NotifyAgentContextCompleteAsync(
+        WorkflowContext context,
+        DaprAgentInvocation input,
+        List<WorkflowChatMessage> messages,
+        int turnStartIndex,
+        List<WorkflowChatMessage> turnRequestMessages,
+        string? errorMessage)
+    {
+        var responseMessages = messages.Skip(turnStartIndex + turnRequestMessages.Count).ToList();
+
+        return context.CallActivityAsync(
+            nameof(CompleteAgentContextActivity),
+            new CompleteAgentContextInput(
+                input.AgentName,
+                input.ChatClientKey,
+                turnRequestMessages,
+                responseMessages,
+                errorMessage,
+                input.TelemetryBaggage));
     }
 }

@@ -653,6 +653,117 @@ public sealed class DaprAgentsBuilderExtensionsTests
     }
 
     // =========================================================================
+    // WithContextProviders(builder, agentName, contextProviders)
+    // =========================================================================
+
+    [Fact]
+    public void WithContextProviders_NullBuilder_Throws()
+    {
+        IAgentsBuilder builder = null!;
+
+        Assert.Throws<ArgumentNullException>(() => builder.WithContextProviders("agent", new TestContextProvider()));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void WithContextProviders_WhitespaceAgentName_Throws(string agentName)
+    {
+        var builder = new ServiceCollection().AddDaprAgents();
+
+        Assert.Throws<ArgumentException>(() => builder.WithContextProviders(agentName, new TestContextProvider()));
+    }
+
+    [Fact]
+    public void WithContextProviders_NullProviders_Throws()
+    {
+        var builder = new ServiceCollection().AddDaprAgents();
+
+        Assert.Throws<ArgumentNullException>(() => builder.WithContextProviders("agent", (IReadOnlyList<AIContextProvider>)null!));
+    }
+
+    [Fact]
+    public void WithContextProviders_UnsupportedBuilder_Throws()
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            DaprAgentsBuilderExtensions.WithContextProviders(new FakeBuilder(), "agent", new TestContextProvider()));
+    }
+
+    [Fact]
+    public void WithContextProviders_ReturnsBuilderInstance()
+    {
+        var services = new ServiceCollection();
+        var builder = services.AddDaprAgents();
+
+        var result = builder.WithContextProviders("agent", new TestContextProvider());
+
+        Assert.Same(builder, result);
+    }
+
+    [Fact]
+    public void WithContextProviders_CalledBeforeWithAgent_AttachedOnMaterialization()
+    {
+        var services = new ServiceCollection();
+        var provider = new TestContextProvider();
+        var chatClient = new TestChatClient();
+        services.AddSingleton<IChatClient>(chatClient);
+        var builder = services.AddDaprAgents();
+
+        builder.WithContextProviders("my-agent", provider);
+        builder.WithAgent("my-agent", "Do something useful.");
+
+        var serviceProvider = services.BuildServiceProvider();
+        var registration = FindRegistration(services, "my-agent");
+        registration.Factory(serviceProvider);
+
+        var config = serviceProvider.GetRequiredService<ChatClientRegistry>().Get("my-agent");
+        Assert.NotNull(config);
+        Assert.Same(provider, Assert.Single(config!.ContextProviders!));
+    }
+
+    [Fact]
+    public void WithContextProviders_CalledAfterWithAgent_AttachedOnMaterialization()
+    {
+        var services = new ServiceCollection();
+        var provider = new TestContextProvider();
+        var chatClient = new TestChatClient();
+        services.AddSingleton<IChatClient>(chatClient);
+        var builder = services.AddDaprAgents();
+
+        builder.WithAgent("my-agent", "Do something useful.");
+        builder.WithContextProviders("my-agent", provider);
+
+        var serviceProvider = services.BuildServiceProvider();
+        var registration = FindRegistration(services, "my-agent");
+        registration.Factory(serviceProvider);
+
+        var config = serviceProvider.GetRequiredService<ChatClientRegistry>().Get("my-agent");
+        Assert.NotNull(config);
+        Assert.Same(provider, Assert.Single(config!.ContextProviders!));
+    }
+
+    [Fact]
+    public void RegisterAgentComponents_ChatClientAgentWithAIContextProviders_RegistersThem()
+    {
+        var services = new ServiceCollection();
+        services.AddDaprAgents();
+        var provider = services.BuildServiceProvider();
+        var chatClient = new TestChatClient();
+        var contextProvider = new TestContextProvider();
+        var agent = chatClient.AsAIAgent(new ChatClientAgentOptions
+        {
+            Name = "context-agent",
+            AIContextProviders = [contextProvider]
+        });
+
+        DaprAgentsBuilderExtensions.RegisterAgentComponents(provider, agent, chatClient);
+
+        var config = provider.GetRequiredService<ChatClientRegistry>().Get("context-agent");
+        Assert.NotNull(config);
+        Assert.Same(contextProvider, Assert.Single(config!.ContextProviders!));
+    }
+
+    // =========================================================================
     // Argument-validation: ThrowsOnInvalidParameters (retained from original)
     // =========================================================================
 
@@ -852,4 +963,13 @@ public sealed class DaprAgentsBuilderExtensionsTests
     }
 
     private sealed class DaprChatClient : TestChatClient;
+
+    private sealed class TestContextProvider : AIContextProvider
+    {
+        protected override ValueTask<AIContext> ProvideAIContextAsync(InvokingContext context, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new AIContext());
+
+        protected override ValueTask StoreAIContextAsync(InvokedContext context, CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
+    }
 }

@@ -3,6 +3,7 @@
 // Licensed under the Business Source License 1.1 (BSL 1.1).
 
 using System.Diagnostics;
+using System.Text.Json;
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
 using Microsoft.Extensions.AI;
@@ -105,9 +106,142 @@ public sealed class ExecuteToolActivityTests
         Assert.Null(accessor.Current);
     }
 
-    private static ExecuteToolActivity BuildActivity(ToolRegistry toolRegistry, IDaprAgentContextAccessor accessor)
+    [Fact]
+    public async Task RunAsync_RegisteredTool_SetsServicesOnFunctionArguments()
     {
+        // Regression guard: MAF skill tools (read_skill_resource, run_skill_script) resolve
+        // services via AIFunctionArguments.Services and throw ArgumentNullException without it.
+        var accessor = new DaprAgentContextAccessor();
+        var registry = new ToolRegistry();
         var serviceProvider = new EmptyServiceProvider();
+        IServiceProvider? capturedServices = null;
+        registry.Register(
+            AgentName,
+            AIFunctionFactory.Create(
+                (AIFunctionArguments args) =>
+                {
+                    capturedServices = args.Services;
+                    return "ok";
+                },
+                name: "needs_services"));
+
+        var activity = BuildActivity(registry, accessor, serviceProvider);
+
+        await activity.RunAsync(
+            MakeContext(),
+            new ExecuteToolInput(AgentName, "needs_services", "call-1", "{}"));
+
+        Assert.Same(serviceProvider, capturedServices);
+    }
+
+    // =========================================================================
+    // Approval-required tools (Microsoft.Extensions.AI.ApprovalRequiredAIFunction)
+    // =========================================================================
+
+    [Fact]
+    public async Task RunAsync_ApprovalRequiredFunction_Approved_InvokesUnderlyingFunction()
+    {
+        var accessor = new DaprAgentContextAccessor();
+        var registry = new ToolRegistry();
+        var invoked = false;
+        var inner = AIFunctionFactory.Create(() =>
+        {
+            invoked = true;
+            return "script output";
+        }, name: "run_skill_script");
+        registry.Register(AgentName, new ApprovalRequiredAIFunction(inner));
+
+        var handler = new StubToolApprovalHandler(ToolApprovalDecision.Approve());
+        var activity = BuildActivity(registry, accessor, approvalHandler: handler);
+
+        var output = await activity.RunAsync(
+            MakeContext(),
+            new ExecuteToolInput(AgentName, "run_skill_script", "call-1", "{}"));
+
+        Assert.True(invoked);
+        Assert.Equal("\"script output\"", output.ResultJson);
+        Assert.Single(handler.Requests);
+        Assert.Equal("run_skill_script", handler.Requests[0].ToolName);
+        Assert.Equal("call-1", handler.Requests[0].CallId);
+    }
+
+    [Fact]
+    public async Task RunAsync_ApprovalRequiredFunction_Denied_ReturnsDenialWithoutInvoking()
+    {
+        var accessor = new DaprAgentContextAccessor();
+        var registry = new ToolRegistry();
+        var invoked = false;
+        var inner = AIFunctionFactory.Create(() =>
+        {
+            invoked = true;
+            return "should not run";
+        }, name: "run_skill_script");
+        registry.Register(AgentName, new ApprovalRequiredAIFunction(inner));
+
+        var handler = new StubToolApprovalHandler(ToolApprovalDecision.Deny("not allowed"));
+        var activity = BuildActivity(registry, accessor, approvalHandler: handler);
+
+        var output = await activity.RunAsync(
+            MakeContext(),
+            new ExecuteToolInput(AgentName, "run_skill_script", "call-1", "{}"));
+
+        Assert.False(invoked);
+        Assert.Null(output.Error);
+        var payload = JsonSerializer.Deserialize<JsonElement>(output.ResultJson!);
+        Assert.False(payload.GetProperty("approved").GetBoolean());
+        Assert.Equal("not allowed", payload.GetProperty("reason").GetString());
+    }
+
+    [Fact]
+    public async Task RunAsync_ApprovalRequiredFunction_NoHandlerRegistered_DeniesByDefault()
+    {
+        // DenyingToolApprovalHandler is the default registered by AddDaprAgents() — fail closed.
+        var accessor = new DaprAgentContextAccessor();
+        var registry = new ToolRegistry();
+        var invoked = false;
+        var inner = AIFunctionFactory.Create(() =>
+        {
+            invoked = true;
+            return "should not run";
+        }, name: "run_skill_script");
+        registry.Register(AgentName, new ApprovalRequiredAIFunction(inner));
+
+        var activity = BuildActivity(registry, accessor, approvalHandler: new DenyingToolApprovalHandler());
+
+        var output = await activity.RunAsync(
+            MakeContext(),
+            new ExecuteToolInput(AgentName, "run_skill_script", "call-1", "{}"));
+
+        Assert.False(invoked);
+        var payload = JsonSerializer.Deserialize<JsonElement>(output.ResultJson!);
+        Assert.False(payload.GetProperty("approved").GetBoolean());
+    }
+
+    [Fact]
+    public async Task RunAsync_NonApprovalRequiredFunction_DoesNotConsultApprovalHandler()
+    {
+        var accessor = new DaprAgentContextAccessor();
+        var registry = new ToolRegistry();
+        registry.Register(AgentName, AIFunctionFactory.Create(() => "ok", name: "plain_tool"));
+
+        var handler = new StubToolApprovalHandler(ToolApprovalDecision.Deny("irrelevant"));
+        var activity = BuildActivity(registry, accessor, approvalHandler: handler);
+
+        var output = await activity.RunAsync(
+            MakeContext(),
+            new ExecuteToolInput(AgentName, "plain_tool", "call-1", "{}"));
+
+        Assert.Empty(handler.Requests);
+        Assert.Equal("\"ok\"", output.ResultJson);
+    }
+
+    private static ExecuteToolActivity BuildActivity(
+        ToolRegistry toolRegistry,
+        IDaprAgentContextAccessor accessor,
+        IServiceProvider? serviceProvider = null,
+        IToolApprovalHandler? approvalHandler = null)
+    {
+        serviceProvider ??= new EmptyServiceProvider();
         var agentRegistry = new AgentRegistry(serviceProvider, []);
         agentRegistry.AddFactory(_ => new TestAIAgent(AgentName), null, AgentName, serviceProvider);
 
@@ -115,6 +249,7 @@ public sealed class ExecuteToolActivityTests
             toolRegistry,
             agentRegistry,
             accessor,
+            approvalHandler ?? new StubToolApprovalHandler(ToolApprovalDecision.Approve()),
             workflowClient: null!,
             serviceProvider,
             NullLogger<ExecuteToolActivity>.Instance);
@@ -122,7 +257,7 @@ public sealed class ExecuteToolActivityTests
 
     private static TestWorkflowActivityContext MakeContext(string instanceId = "instance-1") =>
         new(instanceId);
-    
+
     [Fact]
     public async Task RunAsync_AddsAgentAndToolBaggageToCurrentActivity()
     {
@@ -142,6 +277,7 @@ public sealed class ExecuteToolActivityTests
             toolRegistry,
             new AgentRegistry(serviceProvider, []),
             new DaprAgentContextAccessor(),
+            new StubToolApprovalHandler(ToolApprovalDecision.Approve()),
             workflowClient: null!,
             serviceProvider,
             NullLogger<ExecuteToolActivity>.Instance);
@@ -173,6 +309,7 @@ public sealed class ExecuteToolActivityTests
             toolRegistry,
             new AgentRegistry(serviceProvider, []),
             new DaprAgentContextAccessor(),
+            new StubToolApprovalHandler(ToolApprovalDecision.Approve()),
             workflowClient: null!,
             serviceProvider,
             NullLogger<ExecuteToolActivity>.Instance);
@@ -202,5 +339,16 @@ public sealed class ExecuteToolActivityTests
     private sealed class EmptyServiceProvider : IServiceProvider
     {
         public object? GetService(Type serviceType) => null;
+    }
+
+    private sealed class StubToolApprovalHandler(ToolApprovalDecision decision) : IToolApprovalHandler
+    {
+        public List<ToolApprovalRequest> Requests { get; } = [];
+
+        public Task<ToolApprovalDecision> RequestApprovalAsync(ToolApprovalRequest request, CancellationToken cancellationToken = default)
+        {
+            Requests.Add(request);
+            return Task.FromResult(decision);
+        }
     }
 }

@@ -23,7 +23,10 @@ public sealed class CallLlmActivityTests
 
     // ── Helpers ────────────────────────────────────────────────────────────
 
-    private static (CallLlmActivity Activity, CapturingChatClient Client) BuildActivity(IList<AITool>? tools = null)
+    private static (CallLlmActivity Activity, CapturingChatClient Client) BuildActivity(IList<AITool>? tools = null) =>
+        BuildActivity(tools, new ToolRegistry());
+
+    private static (CallLlmActivity Activity, CapturingChatClient Client) BuildActivity(IList<AITool>? tools, ToolRegistry toolRegistry)
     {
         var sp = new EmptyServiceProvider();
         var capturingClient = new CapturingChatClient();
@@ -31,7 +34,7 @@ public sealed class CallLlmActivityTests
         registry.Register(AgentName, capturingClient, instructions: null, tools: tools);
 
         var agentRegistry = new AgentRegistry(sp, []);
-        var activity = new CallLlmActivity(registry, agentRegistry, sp, NullLogger<CallLlmActivity>.Instance);
+        var activity = new CallLlmActivity(registry, toolRegistry, agentRegistry, sp, NullLogger<CallLlmActivity>.Instance);
 
         return (activity, capturingClient);
     }
@@ -110,7 +113,7 @@ public sealed class CallLlmActivityTests
         registry.Register(AgentName, capturingClient, instructions: "You are helpful.", tools: null);
 
         var activity = new CallLlmActivity(
-            registry, new AgentRegistry(sp, []), sp,
+            registry, new ToolRegistry(), new AgentRegistry(sp, []), sp,
             NullLogger<CallLlmActivity>.Instance);
 
         capturingClient.SetNextResponse(finalText: "ok");
@@ -160,6 +163,143 @@ public sealed class CallLlmActivityTests
         Assert.Same(ChatResponseFormat.Json, chatOptions.ResponseFormat);
         var capturedTool = Assert.Single(chatOptions.Tools!);
         Assert.Same(tool, capturedTool);
+    }
+
+    // ── AIContextProvider contribution (AdditionalInstructions/AdditionalMessages/AdditionalToolNames) ──
+
+    [Fact]
+    public async Task RunAsync_AdditionalInstructions_AppendedAfterBaseInstructions()
+    {
+        var sp = new EmptyServiceProvider();
+        var capturingClient = new CapturingChatClient();
+        var registry = new ChatClientRegistry();
+        registry.Register(AgentName, capturingClient, instructions: "You are helpful.", tools: null);
+        var activity = new CallLlmActivity(registry, new ToolRegistry(), new AgentRegistry(sp, []), sp, NullLogger<CallLlmActivity>.Instance);
+        capturingClient.SetNextResponse(finalText: "ok");
+
+        var input = new CallLlmInput(AgentName, null,
+        [
+            new WorkflowChatMessage { Role = "user", Content = "hi" }
+        ])
+        {
+            AdditionalInstructions = "You have access to skills."
+        };
+
+        await activity.RunAsync(MakeContext(), input);
+
+        var msgs = capturingClient.LastMessages!;
+        Assert.Equal(ChatRole.System, msgs[0].Role);
+        Assert.Equal("You are helpful.\n\nYou have access to skills.", msgs[0].Text);
+    }
+
+    [Fact]
+    public async Task RunAsync_AdditionalInstructions_NoBaseInstructions_UsedAlone()
+    {
+        var (activity, client) = BuildActivity();
+        client.SetNextResponse(finalText: "ok");
+
+        var input = new CallLlmInput(AgentName, null,
+        [
+            new WorkflowChatMessage { Role = "user", Content = "hi" }
+        ])
+        {
+            AdditionalInstructions = "You have access to skills."
+        };
+
+        await activity.RunAsync(MakeContext(), input);
+
+        var msgs = client.LastMessages!;
+        Assert.Equal(ChatRole.System, msgs[0].Role);
+        Assert.Equal("You have access to skills.", msgs[0].Text);
+    }
+
+    [Fact]
+    public async Task RunAsync_NoAdditionalContext_BehavesExactlyAsBefore()
+    {
+        // Regression guard: agents with no AIContextProviders must see identical behavior to
+        // before ResolveAgentContextActivity/AdditionalX existed.
+        var (activity, client) = BuildActivity();
+        client.SetNextResponse(finalText: "ok");
+
+        var input = new CallLlmInput(AgentName, null,
+        [
+            new WorkflowChatMessage { Role = "user", Content = "hi" }
+        ]);
+
+        await activity.RunAsync(MakeContext(), input);
+
+        var msgs = client.LastMessages!;
+        Assert.Single(msgs);
+        Assert.Equal(ChatRole.User, msgs[0].Role);
+        Assert.Null(client.LastOptions);
+    }
+
+    [Fact]
+    public async Task RunAsync_AdditionalMessages_IncludedBeforeConversationMessages()
+    {
+        var (activity, client) = BuildActivity();
+        client.SetNextResponse(finalText: "ok");
+
+        var input = new CallLlmInput(AgentName, null,
+        [
+            new WorkflowChatMessage { Role = "user", Content = "hi" }
+        ])
+        {
+            AdditionalMessages = [new WorkflowChatMessage { Role = "user", Content = "ephemeral context" }]
+        };
+
+        await activity.RunAsync(MakeContext(), input);
+
+        var msgs = client.LastMessages!;
+        Assert.Equal(2, msgs.Count);
+        Assert.Equal("ephemeral context", msgs[0].Text);
+        Assert.Equal("hi", msgs[1].Text);
+    }
+
+    [Fact]
+    public async Task RunAsync_AdditionalToolNames_ResolvedFromToolRegistry_AndMergedWithStaticTools()
+    {
+        var staticTool = AIFunctionFactory.Create(() => "static", name: "static_tool");
+        var contributedTool = AIFunctionFactory.Create(() => "loaded", name: "load_skill");
+        var toolRegistry = new ToolRegistry();
+        toolRegistry.Register(AgentName, contributedTool);
+
+        var (activity, client) = BuildActivity([staticTool], toolRegistry);
+        client.SetNextResponse(finalText: "ok");
+
+        var input = new CallLlmInput(AgentName, null,
+        [
+            new WorkflowChatMessage { Role = "user", Content = "hi" }
+        ])
+        {
+            AdditionalToolNames = ["load_skill"]
+        };
+
+        await activity.RunAsync(MakeContext(), input);
+
+        var tools = client.LastOptions!.Tools!;
+        Assert.Equal(2, tools.Count);
+        Assert.Contains(tools, t => ReferenceEquals(t, staticTool));
+        Assert.Contains(tools, t => ReferenceEquals(t, contributedTool));
+    }
+
+    [Fact]
+    public async Task RunAsync_AdditionalToolNames_UnknownName_SkippedGracefully()
+    {
+        var (activity, client) = BuildActivity();
+        client.SetNextResponse(finalText: "ok");
+
+        var input = new CallLlmInput(AgentName, null,
+        [
+            new WorkflowChatMessage { Role = "user", Content = "hi" }
+        ])
+        {
+            AdditionalToolNames = ["does_not_exist"]
+        };
+
+        await activity.RunAsync(MakeContext(), input);
+
+        Assert.Null(client.LastOptions);
     }
 
     // ── FunctionCallContent round-trip ─────────────────────────────────────
