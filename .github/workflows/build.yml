@@ -60,7 +60,7 @@ jobs:
           echo "matrix=$PROJECTS" >> $GITHUB_OUTPUT
 
   unit-tests:
-    name: Unit Tests ${{ matrix.display-name }} / ${{ matrix.os }} - ${{ matrix.project }}
+    name: Unit Tests ${{ matrix.display-name }} - ${{ matrix.project }}
     needs: ['build', 'discover-unit-test-projects']
     runs-on: "runs-on=${{ github.run_id }}/runner=2cpu-linux-x64/tag=dotnet-ci"
     strategy:
@@ -180,9 +180,8 @@ jobs:
       - name: Run Integration Tests
         id: tests
         continue-on-error: true
-        # Integration tests use xunit v3 + Microsoft.Testing.Platform (OutputType=Exe).
-        # dotnet test exits silently for MTP exe projects; use dotnet run instead and pass
-        # MTP-native args (--report-trx, --results-directory) after the -- separator.
+        # The integration test project is OutputType=Exe with UseAppHost=true, so it needs an
+        # explicit RuntimeIdentifier for the apphost to be produced before the tests run.
         run: |
           dotnet test "${{ matrix.project }}" \
           --configuration release \

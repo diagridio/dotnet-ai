@@ -22,7 +22,10 @@
     <PackageVersion Include="Microsoft.Testing.Platform" Version="2.1.0" />
     <PackageVersion Include="MinVer" Version="7.0.0" />
     <PackageVersion Include="moq" Version="4.20.72" />
-    <PackageVersion Include="Testcontainers" Version="4.9.0" />
+    <!-- 4.14.0 is the first release to require the patched SSH.NET 2026.0.0.
+         Earlier versions pull SSH.NET 2025.1.0, whose advisory GHSA-q939-rpr3-3284
+         becomes a build error under TreatWarningsAsErrors (NU1903). -->
+    <PackageVersion Include="Testcontainers" Version="4.14.0" />
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
     <PackageVersion Include="xunit.v3.extensibility.core" Version="3.2.2" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
