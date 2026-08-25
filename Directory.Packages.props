@@ -22,6 +22,9 @@
     <PackageVersion Include="Microsoft.Testing.Platform" Version="2.1.0" />
     <PackageVersion Include="MinVer" Version="7.0.0" />
     <PackageVersion Include="moq" Version="4.20.72" />
+    <!-- Pins a transitive dependency of Testcontainers (which only requires >= 2025.1.0) to a
+         version patching CVE-2026-48798 / GHSA-q939-rpr3-3284 (ScpClient.Download path traversal). -->
+    <PackageVersion Include="SSH.NET" Version="2026.0.0" />
     <PackageVersion Include="Testcontainers" Version="4.9.0" />
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
     <PackageVersion Include="xunit.v3.extensibility.core" Version="3.2.2" />
