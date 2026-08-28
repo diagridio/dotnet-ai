@@ -10,6 +10,8 @@
 // On the Change Date, this software will be available under
 // the Apache License, Version 2.0.
 
+using Microsoft.Agents.AI;
+
 namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 
 /// <summary>
@@ -18,4 +20,21 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 internal sealed record ResolveAgentContextInput(
     string AgentName,
     string? ChatClientKey,
-    Dictionary<string, string?>? TelemetryBaggage = null);
+    Dictionary<string, string?>? TelemetryBaggage = null)
+{
+    /// <summary>
+    /// The new message(s) for this run (not prior history). Used only to establish
+    /// <c>AIAgent.CurrentRunContext.RequestMessages</c> for context providers — see
+    /// <see cref="AgentRunContextScope"/> — never fed into the <c>AIContext</c> accumulator itself
+    /// (that would duplicate the message once <see cref="CallLlmActivity"/> also sends it).
+    /// </summary>
+    public List<WorkflowChatMessage> RequestMessages { get; init; } = [];
+
+    /// <summary>
+    /// The <see cref="AgentRunOptions"/> supplied for this run (e.g. caller-supplied
+    /// <see cref="AgentRunOptions.AdditionalProperties"/> such as a session identifier an external
+    /// memory provider needs). Established as <c>AIAgent.CurrentRunContext.RunOptions</c> for the
+    /// duration of the provider loop — see <see cref="AgentRunContextScope"/>.
+    /// </summary>
+    public AgentRunOptions? Options { get; init; }
+}

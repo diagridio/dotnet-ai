@@ -42,6 +42,15 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 /// duplicated once <see cref="CallLlmActivity"/> also sends the real conversation history.
 /// </para>
 /// <para>
+/// <see cref="AgentRunContextScope"/> establishes <c>AIAgent.CurrentRunContext</c> — including
+/// <see cref="ResolveAgentContextInput.Options"/> — for the duration of the provider loop, so a
+/// provider that needs invocation-specific metadata (e.g. a session identifier an external memory
+/// service uses) can read it exactly as it would if invoked through <c>AIAgent.RunAsync</c>. The
+/// session is serialized afterward (into <see cref="ResolveAgentContextOutput.SerializedSessionJson"/>)
+/// so any state a provider wrote to <c>Session.StateBag</c> survives into
+/// <see cref="CompleteAgentContextActivity"/>'s <c>InvokedAsync</c> call for the same logical session.
+/// </para>
+/// <para>
 /// Any <see cref="AIFunction"/> tools contributed by a provider (e.g. a skills provider's
 /// <c>load_skill</c>/<c>read_skill_resource</c>/<c>run_skill_script</c>) are registered into
 /// <see cref="ToolRegistry"/> under the agent's name, so <see cref="ExecuteToolActivity"/> can resolve
@@ -76,25 +85,30 @@ internal sealed partial class ResolveAgentContextActivity(
 
         var agent = agentRegistry.Get(input.AgentName, input.ChatClientKey, serviceProvider);
         var session = await agent.CreateSessionAsync().ConfigureAwait(false);
+        var requestMessages = input.RequestMessages.Select(WorkflowChatMessageConverter.ToChatMessage).ToList();
 
         var accumulated = new AIContext();
-        foreach (var provider in providers)
+        using (AgentRunContextScope.Enter(agent, session, requestMessages, input.Options))
         {
-            try
+            foreach (var provider in providers)
             {
-                // AIContextProvider.InvokingContext's constructor is [Experimental("MAAI001")] even
-                // though AIContextProvider/InvokingAsync itself is not — MAF is still iterating on
-                // its exact shape. This type is internal plumbing, not part of our public API surface.
+                try
+                {
+                    // AIContextProvider.InvokingContext's constructor is [Experimental("MAAI001")]
+                    // even though AIContextProvider/InvokingAsync itself is not — MAF is still
+                    // iterating on its exact shape. This type is internal plumbing, not part of our
+                    // public API surface.
 #pragma warning disable MAAI001
-                var invokingContext = new AIContextProvider.InvokingContext(agent, session, accumulated);
+                    var invokingContext = new AIContextProvider.InvokingContext(agent, session, accumulated);
 #pragma warning restore MAAI001
 
-                accumulated = await provider.InvokingAsync(invokingContext, CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                LogProviderError(input.AgentName, provider.GetType().Name, ex.Message);
-                throw;
+                    accumulated = await provider.InvokingAsync(invokingContext, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    LogProviderError(input.AgentName, provider.GetType().Name, ex.Message);
+                    throw;
+                }
             }
         }
 
@@ -113,11 +127,16 @@ internal sealed partial class ResolveAgentContextActivity(
             }
         }
 
+        // Capture any state a provider wrote to session.StateBag during InvokingAsync so
+        // CompleteAgentContextActivity can reconstruct the same logical session for InvokedAsync.
+        var serializedSession = await agent.SerializeSessionAsync(session).ConfigureAwait(false);
+
         return new ResolveAgentContextOutput
         {
             Instructions = string.IsNullOrWhiteSpace(accumulated.Instructions) ? null : accumulated.Instructions,
             Messages = accumulated.Messages?.Select(WorkflowChatMessageConverter.FromChatMessage).ToList(),
-            ToolNames = toolNames
+            ToolNames = toolNames,
+            SerializedSessionJson = serializedSession.GetRawText()
         };
     }
 

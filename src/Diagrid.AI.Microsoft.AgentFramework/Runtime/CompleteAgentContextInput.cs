@@ -10,6 +10,8 @@
 // On the Change Date, this software will be available under
 // the Apache License, Version 2.0.
 
+using Microsoft.Agents.AI;
+
 namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 
 /// <summary>
@@ -23,4 +25,21 @@ internal sealed record CompleteAgentContextInput(
     List<WorkflowChatMessage> RequestMessages,
     List<WorkflowChatMessage>? ResponseMessages,
     string? ErrorMessage,
-    Dictionary<string, string?>? TelemetryBaggage = null);
+    Dictionary<string, string?>? TelemetryBaggage = null)
+{
+    /// <summary>
+    /// The <see cref="AgentRunOptions"/> supplied for this run — see
+    /// <see cref="ResolveAgentContextInput.Options"/>. Established as
+    /// <c>AIAgent.CurrentRunContext.RunOptions</c> for the duration of the provider loop — see
+    /// <see cref="AgentRunContextScope"/>.
+    /// </summary>
+    public AgentRunOptions? Options { get; init; }
+
+    /// <summary>
+    /// The serialized session produced by <see cref="ResolveAgentContextActivity"/> — see
+    /// <see cref="ResolveAgentContextOutput.SerializedSessionJson"/>. When present, deserialized so
+    /// <c>InvokedAsync</c> sees the same logical session (and any state a provider wrote to its
+    /// <c>StateBag</c> during <c>InvokingAsync</c>); otherwise a fresh session is created.
+    /// </summary>
+    public string? SerializedSessionJson { get; init; }
+}
