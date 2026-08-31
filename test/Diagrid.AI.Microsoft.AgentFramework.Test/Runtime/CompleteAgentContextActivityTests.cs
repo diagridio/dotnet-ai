@@ -115,6 +115,101 @@ public sealed class CompleteAgentContextActivityTests
         Assert.True(invoked);
     }
 
+    // =========================================================================
+    // AIAgent.CurrentRunContext / logical session continuity (issue #66)
+    // =========================================================================
+
+    [Fact]
+    public async Task RunAsync_EstablishesCurrentRunContext_WithOptionsAndRequestMessages()
+    {
+        AgentRunContext? captured = null;
+        var provider = new FakeContextProvider { OnInvoked = _ => captured = AIAgent.CurrentRunContext };
+        var (activity, _) = Build(provider);
+
+        var options = new AgentRunOptions
+        {
+            AdditionalProperties = new AdditionalPropertiesDictionary { ["sessionId"] = "abc-123" }
+        };
+
+        await activity.RunAsync(
+            MakeContext(),
+            new CompleteAgentContextInput(AgentName, null, [Msg("hi")], [Msg("hello")], null) { Options = options });
+
+        var runContext = captured ?? throw new InvalidOperationException("CurrentRunContext was not established.");
+        var runOptions = runContext.RunOptions ?? throw new InvalidOperationException("RunOptions was not set.");
+        Assert.Same(options, runOptions);
+        Assert.Equal("abc-123", runOptions.AdditionalProperties?["sessionId"]);
+        Assert.Contains(runContext.RequestMessages, m => m.Text == "hi");
+    }
+
+    [Fact]
+    public async Task RunAsync_CurrentRunContext_IsClearedAfterActivityCompletes()
+    {
+        var provider = new FakeContextProvider();
+        var (activity, _) = Build(provider);
+
+        await activity.RunAsync(
+            MakeContext(),
+            new CompleteAgentContextInput(AgentName, null, [Msg("hi")], [Msg("hello")], null));
+
+        Assert.Null(AIAgent.CurrentRunContext);
+    }
+
+    [Fact]
+    public async Task RunAsync_NoSerializedSession_FallsBackToFreshSession_DoesNotThrow()
+    {
+        var provider = new FakeContextProvider();
+        var (activity, _) = Build(provider);
+
+        var output = await activity.RunAsync(
+            MakeContext(),
+            new CompleteAgentContextInput(AgentName, null, [Msg("hi")], [Msg("hello")], null) { SerializedSessionJson = null });
+
+        Assert.NotNull(output);
+    }
+
+    [Fact]
+    public async Task RunAsync_WithSerializedSession_ReconstructsSameLogicalSession_StateWrittenDuringResolveIsVisible()
+    {
+        // End-to-end proof of the issue #66 fix: state a provider wrote to Session.StateBag while
+        // ResolveAgentContextActivity ran InvokingAsync is visible here, during InvokedAsync, for the
+        // same logical session — reconstructed from ResolveAgentContextOutput.SerializedSessionJson.
+        //
+        // Uses a real ChatClientAgent rather than the TestAIAgent double used elsewhere in this
+        // file: TestAIAgent's session serialize/deserialize are fixed no-op stubs, so they can't
+        // demonstrate an actual state round-trip.
+        var sp = new EmptyServiceProvider();
+        var chatClientRegistry = new ChatClientRegistry();
+        string? observedValue = null;
+        var provider = new FakeContextProvider
+        {
+            OnInvoked = ctx => ctx.Session!.StateBag.TryGetValue("memory-key", out observedValue)
+        };
+        var chatClientAgent = new ChatClientAgent(new TestChatClient(), instructions: null, name: AgentName);
+
+        // Simulate what ResolveAgentContextActivity produced: a session with provider-written state.
+        var upstreamSession = await chatClientAgent.CreateSessionAsync();
+        upstreamSession.StateBag.SetValue("memory-key", "written-during-invoking");
+        var serializedSessionJson = (await chatClientAgent.SerializeSessionAsync(upstreamSession)).GetRawText();
+
+        var agentRegistry = new AgentRegistry(sp, []);
+        agentRegistry.AddFactory(_ =>
+        {
+            chatClientRegistry.Register(AgentName, chatClientAgent.ChatClient, null, null, [provider]);
+            return chatClientAgent;
+        }, null, AgentName, sp);
+        var activity = new CompleteAgentContextActivity(chatClientRegistry, agentRegistry, sp, NullLogger<CompleteAgentContextActivity>.Instance);
+
+        await activity.RunAsync(
+            MakeContext(),
+            new CompleteAgentContextInput(AgentName, null, [Msg("hi")], [Msg("hello")], null)
+            {
+                SerializedSessionJson = serializedSessionJson
+            });
+
+        Assert.Equal("written-during-invoking", observedValue);
+    }
+
     private static (CompleteAgentContextActivity Activity, ChatClientRegistry ChatClientRegistry) Build(
         params AIContextProvider[] providers)
     {

@@ -1,5 +1,6 @@
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
 using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.Test.Runtime;
 
@@ -345,6 +346,80 @@ public sealed class AgentRunWorkflowTests
         Assert.NotNull(capturedInput);
         Assert.Equal("alpha", capturedInput!.AgentName);
         Assert.Equal("key", capturedInput.ChatClientKey);
+    }
+
+    [Fact]
+    public async Task RunAsync_PassesOptionsAndRequestMessage_ToResolveAgentContextActivity()
+    {
+        // Issue #66: AgentRunOptions.AdditionalProperties (e.g. a session identifier an external
+        // memory provider needs) must reach the context-provider pipeline, not just the LLM call.
+        ResolveAgentContextInput? capturedInput = null;
+
+        var context = new TestWorkflowContext("workflow-ctx-options", (name, input) =>
+        {
+            if (name == nameof(ResolveAgentContextActivity))
+            {
+                capturedInput = (ResolveAgentContextInput)input!;
+                return Task.FromResult<object?>(new ResolveAgentContextOutput());
+            }
+
+            if (name == nameof(CompleteAgentContextActivity))
+            {
+                return Task.FromResult<object?>(new CompleteAgentContextOutput());
+            }
+
+            return Task.FromResult<object?>(new CallLlmOutput { IsFinal = true, Text = "done" });
+        });
+
+        var workflow = new AgentRunWorkflow();
+        var options = new AgentRunOptions
+        {
+            AdditionalProperties = new AdditionalPropertiesDictionary { ["sessionId"] = "abc-123" }
+        };
+        var invocation = new DaprAgentInvocation("alpha", "hello", null, options);
+
+        await workflow.RunAsync(context, invocation);
+
+        Assert.NotNull(capturedInput);
+        Assert.Same(options, capturedInput!.Options);
+        Assert.Single(capturedInput.RequestMessages);
+        Assert.Equal("hello", capturedInput.RequestMessages[0].Content);
+    }
+
+    [Fact]
+    public async Task RunAsync_PassesOptionsAndSerializedSession_ToCompleteAgentContextActivity()
+    {
+        CompleteAgentContextInput? capturedInput = null;
+        var resolveOutput = new ResolveAgentContextOutput { SerializedSessionJson = """{"stateBag":{"k":"v"}}""" };
+
+        var context = new TestWorkflowContext("workflow-ctx-session", (name, input) =>
+        {
+            if (name == nameof(ResolveAgentContextActivity))
+            {
+                return Task.FromResult<object?>(resolveOutput);
+            }
+
+            if (name == nameof(CompleteAgentContextActivity))
+            {
+                capturedInput = (CompleteAgentContextInput)input!;
+                return Task.FromResult<object?>(new CompleteAgentContextOutput());
+            }
+
+            return Task.FromResult<object?>(new CallLlmOutput { IsFinal = true, Text = "done" });
+        });
+
+        var workflow = new AgentRunWorkflow();
+        var options = new AgentRunOptions
+        {
+            AdditionalProperties = new AdditionalPropertiesDictionary { ["sessionId"] = "abc-123" }
+        };
+        var invocation = new DaprAgentInvocation("alpha", "hello", null, options);
+
+        await workflow.RunAsync(context, invocation);
+
+        Assert.NotNull(capturedInput);
+        Assert.Same(options, capturedInput!.Options);
+        Assert.Equal(resolveOutput.SerializedSessionJson, capturedInput.SerializedSessionJson);
     }
 
     [Fact]

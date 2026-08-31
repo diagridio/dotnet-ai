@@ -2,6 +2,7 @@
 //
 // Licensed under the Business Source License 1.1 (BSL 1.1).
 
+using System.Text.Json;
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -147,6 +148,114 @@ public sealed class ResolveAgentContextActivityTests
         Assert.Equal("Lazy.", output.Instructions);
     }
 
+    // =========================================================================
+    // AIAgent.CurrentRunContext / AgentRunOptions.AdditionalProperties (issue #66)
+    // =========================================================================
+
+    [Fact]
+    public async Task RunAsync_EstablishesCurrentRunContext_WithOptionsAndRequestMessages()
+    {
+        AgentRunContext? captured = null;
+        var provider = new FakeContextProvider { OnInvoking = _ => captured = AIAgent.CurrentRunContext };
+        var (activity, _, _) = Build(provider);
+
+        var options = new AgentRunOptions
+        {
+            AdditionalProperties = new AdditionalPropertiesDictionary { ["sessionId"] = "abc-123" }
+        };
+        var requestMessages = new List<WorkflowChatMessage> { new() { Role = "user", Content = "hello" } };
+
+        await activity.RunAsync(
+            MakeContext(),
+            new ResolveAgentContextInput(AgentName, null) { Options = options, RequestMessages = requestMessages });
+
+        var runContext = captured ?? throw new InvalidOperationException("CurrentRunContext was not established.");
+        var runOptions = runContext.RunOptions ?? throw new InvalidOperationException("RunOptions was not set.");
+        Assert.Same(options, runOptions);
+        Assert.Equal("abc-123", runOptions.AdditionalProperties?["sessionId"]);
+        Assert.Single(runContext.RequestMessages);
+        Assert.Equal("hello", runContext.RequestMessages.Single().Text);
+    }
+
+    [Fact]
+    public async Task RunAsync_CurrentRunContext_IsClearedAfterActivityCompletes()
+    {
+        var provider = new FakeContextProvider();
+        var (activity, _, _) = Build(provider);
+
+        await activity.RunAsync(MakeContext(), new ResolveAgentContextInput(AgentName, null));
+
+        Assert.Null(AIAgent.CurrentRunContext);
+    }
+
+    [Fact]
+    public async Task RunAsync_ProviderThrows_StillClearsCurrentRunContext()
+    {
+        var provider = new FakeContextProvider { ThrowOnInvoking = new InvalidOperationException("boom") };
+        var (activity, _, _) = Build(provider);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            activity.RunAsync(MakeContext(), new ResolveAgentContextInput(AgentName, null)));
+
+        Assert.Null(AIAgent.CurrentRunContext);
+    }
+
+    [Fact]
+    public async Task RunAsync_NoContextProviders_SerializedSessionJsonIsNull()
+    {
+        var (activity, _, _) = Build();
+
+        var output = await activity.RunAsync(MakeContext(), new ResolveAgentContextInput(AgentName, null));
+
+        Assert.Null(output.SerializedSessionJson);
+    }
+
+    [Fact]
+    public async Task RunAsync_WithProviders_SerializedSessionJsonIsPopulated()
+    {
+        var provider = new FakeContextProvider();
+        var (activity, _, _) = Build(provider);
+
+        var output = await activity.RunAsync(MakeContext(), new ResolveAgentContextInput(AgentName, null));
+
+        Assert.NotNull(output.SerializedSessionJson);
+    }
+
+    [Fact]
+    public async Task RunAsync_ProviderWritesToSessionStateBag_CapturedInSerializedSession()
+    {
+        // The "one logical AgentSession across resolution and completion" requirement from issue
+        // #66: state a provider writes during InvokingAsync must survive into what
+        // CompleteAgentContextActivity reconstructs for InvokedAsync.
+        //
+        // Uses a real ChatClientAgent rather than the TestAIAgent double used elsewhere in this
+        // file: TestAIAgent's session serialize/deserialize are fixed no-op stubs (always "{}"/a
+        // fresh session), so they can't demonstrate an actual state round-trip.
+        var sp = new EmptyServiceProvider();
+        var chatClientRegistry = new ChatClientRegistry();
+        var toolRegistry = new ToolRegistry();
+        var agentRegistry = new AgentRegistry(sp, []);
+        var provider = new FakeContextProvider
+        {
+            OnInvoking = ctx => ctx.Session!.StateBag.SetValue("memory-key", "written-during-invoking")
+        };
+        var chatClientAgent = new ChatClientAgent(new TestChatClient(), instructions: null, name: AgentName);
+        agentRegistry.AddFactory(_ =>
+        {
+            chatClientRegistry.Register(AgentName, chatClientAgent.ChatClient, null, null, [provider]);
+            return chatClientAgent;
+        }, null, AgentName, sp);
+        var activity = new ResolveAgentContextActivity(chatClientRegistry, toolRegistry, agentRegistry, sp, NullLogger<ResolveAgentContextActivity>.Instance);
+
+        var output = await activity.RunAsync(MakeContext(), new ResolveAgentContextInput(AgentName, null));
+
+        Assert.NotNull(output.SerializedSessionJson);
+        var serialized = JsonSerializer.Deserialize<JsonElement>(output.SerializedSessionJson!);
+        var session = await chatClientAgent.DeserializeSessionAsync(serialized);
+        Assert.True(session.StateBag.TryGetValue<string>("memory-key", out var value));
+        Assert.Equal("written-during-invoking", value);
+    }
+
     private static (ResolveAgentContextActivity Activity, ChatClientRegistry ChatClientRegistry, ToolRegistry ToolRegistry) Build(
         params AIContextProvider[] providers)
     {
@@ -170,9 +279,12 @@ public sealed class ResolveAgentContextActivityTests
         public IEnumerable<ChatMessage>? Messages { get; set; }
         public IEnumerable<AITool>? Tools { get; set; }
         public Exception? ThrowOnInvoking { get; set; }
+        public Action<InvokingContext>? OnInvoking { get; set; }
 
         protected override ValueTask<AIContext> ProvideAIContextAsync(InvokingContext context, CancellationToken cancellationToken = default)
         {
+            OnInvoking?.Invoke(context);
+
             if (ThrowOnInvoking is not null)
             {
                 throw ThrowOnInvoking;

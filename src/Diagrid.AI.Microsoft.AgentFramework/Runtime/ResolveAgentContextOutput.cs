@@ -27,4 +27,16 @@ internal sealed record ResolveAgentContextOutput
 
     /// <summary>Names of additional tools (already registered into <see cref="ToolRegistry"/>) to make available for this run.</summary>
     public List<string>? ToolNames { get; init; }
+
+    /// <summary>
+    /// The <c>AgentSession</c> used while resolving context — serialized (via
+    /// <c>AIAgent.SerializeSessionAsync</c>) after every provider's <c>InvokingAsync</c> has run, so
+    /// any state a provider wrote to <c>Session.StateBag</c> is captured. Threaded through
+    /// <see cref="AgentRunWorkflow"/> into <see cref="CompleteAgentContextInput"/> so
+    /// <see cref="CompleteAgentContextActivity"/> can reconstruct the same logical session for
+    /// <c>InvokedAsync</c> — each activity gets its own deserialized instance (durability requires
+    /// this to be data, not a shared live object), but it carries the same state. <c>null</c> when
+    /// there were no context providers to resolve.
+    /// </summary>
+    public string? SerializedSessionJson { get; init; }
 }
