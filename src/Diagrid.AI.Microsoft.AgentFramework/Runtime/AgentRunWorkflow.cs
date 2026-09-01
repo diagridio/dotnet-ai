@@ -63,9 +63,15 @@ public sealed class AgentRunWorkflow : Workflow<DaprAgentInvocation, AgentRunRes
         // Resolve AIContextProviders (e.g. an MAF AgentSkillsProvider) once per run — analogous to
         // what ChatClientAgent.RunAsync does internally before delegating to FunctionInvokingChatClient.
         // A no-op (near-instant) activity call when the agent has no context providers configured.
+        // Options/RequestMessages are passed through so providers can establish AIAgent.CurrentRunContext
+        // (see AgentRunContextScope) and see this run's AgentRunOptions.AdditionalProperties.
         var agentContext = await context.CallActivityAsync<ResolveAgentContextOutput>(
             nameof(ResolveAgentContextActivity),
-            new ResolveAgentContextInput(input.AgentName, input.ChatClientKey, input.TelemetryBaggage));
+            new ResolveAgentContextInput(input.AgentName, input.ChatClientKey, input.TelemetryBaggage)
+            {
+                RequestMessages = turnRequestMessages,
+                Options = input.Options
+            });
 
         try
         {
@@ -102,7 +108,7 @@ public sealed class AgentRunWorkflow : Workflow<DaprAgentInvocation, AgentRunRes
                         Content = llmOutput.Text
                     });
 
-                    await NotifyAgentContextCompleteAsync(context, input, messages, turnStartIndex, turnRequestMessages, errorMessage: null);
+                    await NotifyAgentContextCompleteAsync(context, input, agentContext, messages, turnStartIndex, turnRequestMessages, errorMessage: null);
 
                     return new AgentRunResult
                     {
@@ -150,7 +156,7 @@ public sealed class AgentRunWorkflow : Workflow<DaprAgentInvocation, AgentRunRes
             var maxIterationResponse = new AgentResponse(new ChatMessage(ChatRole.Assistant,
                 $"Agent '{input.AgentName}' exceeded the maximum of {MaxIterations} iterations without producing a final response."));
 
-            await NotifyAgentContextCompleteAsync(context, input, messages, turnStartIndex, turnRequestMessages, errorMessage: null);
+            await NotifyAgentContextCompleteAsync(context, input, agentContext, messages, turnStartIndex, turnRequestMessages, errorMessage: null);
 
             return new AgentRunResult
             {
@@ -160,7 +166,7 @@ public sealed class AgentRunWorkflow : Workflow<DaprAgentInvocation, AgentRunRes
         }
         catch (Exception ex)
         {
-            await NotifyAgentContextCompleteAsync(context, input, messages, turnStartIndex, turnRequestMessages, errorMessage: ex.Message);
+            await NotifyAgentContextCompleteAsync(context, input, agentContext, messages, turnStartIndex, turnRequestMessages, errorMessage: ex.Message);
             throw;
         }
     }
@@ -168,11 +174,15 @@ public sealed class AgentRunWorkflow : Workflow<DaprAgentInvocation, AgentRunRes
     /// <summary>
     /// Notifies the agent's <c>AIContextProviders</c> that this run has completed, successfully or
     /// not (<see cref="CompleteAgentContextActivity"/>). A no-op (near-instant) activity call when
-    /// the agent has no context providers configured.
+    /// the agent has no context providers configured. Threads through the same <c>Options</c> and
+    /// the serialized session <see cref="ResolveAgentContextActivity"/> produced, so
+    /// <c>InvokedAsync</c> sees the same invocation metadata and logical session as
+    /// <c>InvokingAsync</c> did.
     /// </summary>
     private static Task NotifyAgentContextCompleteAsync(
         WorkflowContext context,
         DaprAgentInvocation input,
+        ResolveAgentContextOutput agentContext,
         List<WorkflowChatMessage> messages,
         int turnStartIndex,
         List<WorkflowChatMessage> turnRequestMessages,
@@ -188,6 +198,10 @@ public sealed class AgentRunWorkflow : Workflow<DaprAgentInvocation, AgentRunRes
                 turnRequestMessages,
                 responseMessages,
                 errorMessage,
-                input.TelemetryBaggage));
+                input.TelemetryBaggage)
+            {
+                Options = input.Options,
+                SerializedSessionJson = agentContext.SerializedSessionJson
+            });
     }
 }
