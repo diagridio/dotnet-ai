@@ -21,7 +21,7 @@
     <PackageVersion Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.22.0" />
     <PackageVersion Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.22.0" />
     <PackageVersion Include="Microsoft.IdentityModel.Tokens" Version="8.22.0" />
-    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.300" />
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.401" />
     <PackageVersion Include="Microsoft.Testing.Platform" Version="2.1.0" />
     <PackageVersion Include="MinVer" Version="7.0.0" />
     <PackageVersion Include="moq" Version="4.20.72" />
