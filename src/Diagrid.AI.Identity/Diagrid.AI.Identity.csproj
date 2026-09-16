@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <Description>App-side identity for Catalyst agents: ASP.NET Core middleware that verifies the inbound Diagrid user token against dp-Sentry JWKS, plus outbound on-behalf-of token propagation.</Description>
+        <PackageTags>diagrid;catalyst;identity;oauth;jwt;aspnetcore;agents</PackageTags>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="Diagrid.AI.Identity.Test" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
+        <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" />
+        <PackageReference Include="Microsoft.IdentityModel.Tokens" />
+    </ItemGroup>
+
+</Project>
