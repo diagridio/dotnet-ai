@@ -191,6 +191,80 @@ builder.Services.AddDaprAgents() /* ... */;
 See [`examples/SkillsDemo`](https://github.com/diagridio/dotnet-ai/tree/master/examples/SkillsDemo) for
 a complete, runnable example covering all three discovery mechanisms plus script approval.
 
+## Identity
+
+`Diagrid.AI.Identity` verifies the inbound Catalyst user token on every request and carries it
+on outbound on-behalf-of calls. Two lines install it:
+
+> The whole surface is marked `[Experimental("DGRDID001")]`, so it may change outside a major
+> release. Suppress the diagnostic to opt in:
+> `<NoWarn>$(NoWarn);DGRDID001</NoWarn>`.
+
+```csharp
+builder.Services.AddDiagridIdentity(cfg => cfg.Scopes = ["agent.invoke"]);
+app.UseDiagridIdentity();
+
+app.MapGet("/whoami", (HttpContext ctx) => Results.Ok(ctx.GetVerifiedUser()!.Subject));
+```
+
+A third registers the client outbound calls go out on. It is a plain `HttpClient` from
+`IHttpClientFactory`, so it goes anywhere one goes, and it reads the caller's token at send
+time rather than when the client is built:
+
+```csharp
+builder.Services.AddDiagridIdentityHttpClient();
+```
+
+### Discovery precedence
+
+The issuer, audience and JWKS endpoint come from four sources, highest precedence first:
+
+1. **Explicit configuration** — `cfg.Issuer`, `cfg.Audience`, `cfg.JwksUri`.
+2. **The local sidecar's `/v1.0/metadata`** — probed at `http://127.0.0.1:$DAPR_HTTP_PORT`
+   (or `$CATALYST_DAPR_HTTP_PORT`). Asked before the remote one: a deployed in-cluster app
+   keeps its loopback call rather than paying for a network round trip.
+3. **The remote sidecar's `/v1.0/metadata`** — probed at `$DAPR_HTTP_ENDPOINT`, authenticated
+   with `$DAPR_API_TOKEN` when set. This is the source `diagrid dev run` supplies.
+4. **Environment variables** — `DIAGRID_DP_SENTRY_ISSUER` and `DIAGRID_DP_SENTRY_AUDIENCE`.
+
+The JWKS endpoint itself resolves explicit first, then the value the sidecar advertised when
+its issuer is the one that resolved, then `issuer + /jwks.json`. If no source supplies an
+issuer, every token-carrying request is refused with 503 `oauth.not_configured`.
+
+`cfg.AllowInsecureJwks = true` accepts a non-loopback plaintext `http://` JWKS endpoint. It
+relaxes plain HTTP only — `file://` and every other scheme stay refused — and it is a
+local-development escape hatch: signing keys fetched over plaintext can be substituted by
+anyone on the path, which gives up the guarantee that a verified token was signed by
+dp-Sentry. Loopback endpoints are exempt without it.
+
+`cfg.RequireAuth` governs the no-token case only. When `true` (the default) a request with no
+`X-Diagrid-User-Token` is refused with 401 `oauth.missing_token`; when `false` it reaches the
+handler and `GetVerifiedUser()` returns `null`. Either way a token that **is** present is
+always verified, and an invalid one is always refused.
+
+### Status and error codes
+
+Every rejection is `{"error":"<code>"}` with `Cache-Control: no-store`.
+
+| Status | Code | When |
+| --- | --- | --- |
+| 401 | `oauth.missing_token` | No `X-Diagrid-User-Token` header and `RequireAuth` is on |
+| 401 | `oauth.decode_error` | The token is not a well-formed JWT |
+| 401 | `oauth.invalid_signature` | The signature did not verify against the key set |
+| 401 | `oauth.expired` | The token's `exp` has passed (120s clock skew allowed) |
+| 401 | `oauth.invalid_issuer` | The token's `iss` does not match the resolved issuer |
+| 401 | `oauth.invalid_audience` | The token's `aud` does not match the resolved audience |
+| 401 | `oauth.invalid_token` | Any other claim failure — a missing `exp`/`iss`/`sub`, or a disallowed `alg` |
+| 403 | `oauth.missing_scope` | The verified token lacks a scope the route requires |
+| 503 | `oauth.not_configured` | No source supplied identity coordinates, or the JWKS endpoint is unusable |
+| 503 | `oauth.verifier_unavailable` | Key material is not loaded yet, or no key matches the token's `kid` |
+
+Claim checks run in one order across every Diagrid SDK — required claims, then `exp`, then
+`iss`, then `aud` — so a token with two defects yields the same code wherever it is sent.
+
+See [`examples/IdentityDemo`](https://github.com/diagridio/dotnet-ai/tree/master/examples/IdentityDemo)
+for a complete, runnable example.
+
 ## Links
 - [Diagrid](https://diagrid.io/)
 - [Diagrid Documentation](https://docs.diagrid.io/)
