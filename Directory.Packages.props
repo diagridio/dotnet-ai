@@ -21,6 +21,14 @@
     <PackageVersion Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.22.0" />
     <PackageVersion Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.22.0" />
     <PackageVersion Include="Microsoft.IdentityModel.Tokens" Version="8.22.0" />
+    <!-- Kept in lockstep with the SourceLink pin below, and load-bearing even
+         though nothing references it directly. SourceLink 10.0.401 asks for
+         Build.Tasks.Git 10.0.401, but the SDK band CI rolls forward to
+         (global.json allows latestFeature) contributes its own 10.0.300, which
+         carries GHSA-23fw-v26w-5fgq and so fails restore under
+         TreatWarningsAsErrors as NU1902. Transitive pinning is on, so naming it
+         here raises it whichever path introduces it. -->
+    <PackageVersion Include="Microsoft.Build.Tasks.Git" Version="10.0.401" />
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.401" />
     <PackageVersion Include="Microsoft.Testing.Platform" Version="2.1.0" />
     <PackageVersion Include="MinVer" Version="7.0.0" />
