@@ -19,7 +19,7 @@ builder.Services.AddDaprConversationClient();
 builder.Services.AddDaprAgents()
     .WithAgent(
         agentName: "SampleAgent",
-        conversationComponentName: "converastion-ollama",
+        conversationComponentName: "conversation-ollama",
         instructions: "You are a helpful assistant. Answer normally unless the prompt asks for JSON.",
         serviceLifetime: ServiceLifetime.Singleton);
 
@@ -108,7 +108,7 @@ public sealed partial class SampleWorkflow : Workflow<string, string>
         var agent = context.GetAgent("SampleAgent"); // Retrieves the instance of the registered agent
         var result = await context.RunAgentAndDeserializeAsync<StructuredAnswer>(
             agent: agent,
-            message: $"Analyze and return JSON: {{\"answer\": string, \"confidence\": number}}\n{input}"),
+            message: $"Analyze and return JSON: {{\"answer\": string, \"confidence\": number}}\n{input}",
             logger: logger)
             .ConfigureAwait(false); // Runs the agent invocation as a Dapr workflow and returns the strongly-typed result
         // ...
@@ -132,6 +132,10 @@ Skills can be sourced three ways — file-based, inline, and class-based — mix
 agent via `AgentSkillsProviderBuilder`:
 
 ```csharp
+// Resolve file skills against the build output, which is where the csproj's
+// <Content Include="skills\**\*" CopyToOutputDirectory="PreserveNewest" /> item puts them.
+var skillPath = Path.Combine(AppContext.BaseDirectory, "skills", "unit-converter");
+
 builder.Services.AddDaprAgents()
     .WithAgent(
         agentName: "SkillsAgent",
@@ -139,7 +143,10 @@ builder.Services.AddDaprAgents()
         instructions: "You are a helpful assistant.",
         serviceLifetime: ServiceLifetime.Singleton)
     .WithSkills("SkillsAgent", skills => skills
-        .UseFileSkill("./skills/unit-converter")              // File-based: discovered from SKILL.md
+        // File-based: discovered from SKILL.md. MAF requires a script runner whenever any
+        // file-based source is configured, even if that skill defines no scripts itself.
+        .UseFileSkill(skillPath, scriptRunner: (_, _, _, _, _) =>
+            throw new NotSupportedException("The unit-converter skill has no scripts."))
         .UseSkill(new AgentInlineSkill(                       // Inline: defined directly in code
             name: "joke-teller",
             description: "Tells a short, work-appropriate joke on request.",
@@ -152,7 +159,8 @@ var app = builder.Build();
 
 A single skill (or a plain list) can also be attached directly, without the builder:
 ```csharp
-builder.WithSkills("SkillsAgent", new AgentInlineSkill(name: "...", description: "...", instructions: "..."));
+builder.Services.AddDaprAgents()
+    .WithSkills("SkillsAgent", new AgentInlineSkill(name: "...", description: "...", instructions: "..."));
 ```
 
 Any `AIContextProvider` — not just skills — can be attached to an agent the same way, via
