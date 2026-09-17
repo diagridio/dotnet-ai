@@ -188,6 +188,10 @@ a complete, runnable example covering all three discovery mechanisms plus script
 `Diagrid.AI.Identity` verifies the inbound Catalyst user token on every request and carries it
 on outbound on-behalf-of calls. Two lines install it:
 
+> The whole surface is marked `[Experimental("DGRDID001")]`, so it may change outside a major
+> release. Suppress the diagnostic to opt in:
+> `<NoWarn>$(NoWarn);DGRDID001</NoWarn>`.
+
 ```csharp
 builder.Services.AddDiagridIdentity(cfg => cfg.Scopes = ["agent.invoke"]);
 app.UseDiagridIdentity();
