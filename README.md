@@ -191,6 +191,38 @@ builder.Services.AddDaprAgents() /* ... */;
 See [`examples/SkillsDemo`](https://github.com/diagridio/dotnet-ai/tree/master/examples/SkillsDemo) for
 a complete, runnable example covering all three discovery mechanisms plus script approval.
 
+## Usage analytics
+
+`AddDaprAgents()` reports one anonymous usage event the first time it's called, once per
+package per process. NuGet publishes aggregate download counts only, so this is how Diagrid
+sees which package versions run on which platforms. Because it is one event per process, a
+Kubernetes deployment produces one event per replica per restart: the numbers count process
+starts, not deployments or users.
+
+**What is sent:** the package name and version, operating system, architecture, the .NET
+runtime version, the agent framework and the installed version of its library (`framework`,
+`framework_version`), `kind=agent`, whether the process points at Catalyst or at a plain Dapr
+sidecar (`target`), and whether it runs under a CI variable (`ci`). Nothing else: no
+application data, configuration, app IDs, prompts, or hostnames. The receiving service is
+[Scarf](https://scarf.sh). It derives coarse company and location information from the request
+IP. How Scarf handles that data is described in
+[Scarf's privacy policy](https://about.scarf.sh/privacy-policy).
+
+**It never gets in the way:** the request runs on a background task with a one second HTTP
+timeout, every failure is swallowed, and the caller never waits. Blocked egress and air-gapped
+clusters behave normally. Nothing is written to your application's output — there is no
+logger to configure for it either.
+
+To opt out, set any of these environment variables before starting your application:
+
+```bash
+export DO_NOT_TRACK=1
+# or
+export SCARF_NO_ANALYTICS=1
+# or
+export DIAGRID_NO_ANALYTICS=1
+```
+
 ## Identity
 
 `Diagrid.AI.Identity` verifies the inbound Catalyst user token on every request and carries it
