@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Runtime.CompilerServices;
 using Diagrid.AI.Microsoft.AgentFramework.Telemetry;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.Test.Hosting;
@@ -395,8 +394,10 @@ public sealed class UsageAnalyticsTests
         Assert.Null(exception);
     }
 
-    private static string UniquePackageName([CallerMemberName] string? testName = null) =>
-        $"test-package-{testName}-{Guid.NewGuid():N}";
+    // Short on purpose: every dimension value, the package name included, is capped at
+    // 64 characters by the reporter, and a name that carries the test method plus a full
+    // GUID overruns that cap and no longer matches the assertions.
+    private static string UniquePackageName() => $"test-{Guid.NewGuid():N}";
 
     private static async Task<Uri> WaitForSendAsync(TaskCompletionSource<Uri> tcs, TimeSpan timeout)
     {
