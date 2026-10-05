@@ -249,7 +249,7 @@ public sealed class DaprAgentsBuilderExtensionsSkillsTests
     {
         var tools = await ResolveSkillToolsAsync(b => b.WithSkills("agent", MakeSkill("s")));
 
-        Assert.Equal(3, tools.Count);
+        Assert.Equal(SkillToolNames, tools.Select(t => t.Name).Order());
         Assert.DoesNotContain(tools, t => t is ApprovalRequiredAIFunction);
     }
 
@@ -258,7 +258,7 @@ public sealed class DaprAgentsBuilderExtensionsSkillsTests
     {
         var tools = await ResolveSkillToolsAsync(b => b.WithSkills("agent", s => s.UseSkill(MakeSkill("s"))));
 
-        Assert.Equal(3, tools.Count);
+        Assert.Equal(SkillToolNames, tools.Select(t => t.Name).Order());
         Assert.DoesNotContain(tools, t => t is ApprovalRequiredAIFunction);
     }
 
@@ -276,6 +276,8 @@ public sealed class DaprAgentsBuilderExtensionsSkillsTests
     // =========================================================================
     // Helpers
     // =========================================================================
+
+    private static readonly string[] SkillToolNames = ["load_skill", "read_skill_resource", "run_skill_script"];
 
     private static async Task<IList<AITool>> ResolveSkillToolsAsync(Action<IAgentsBuilder> configure)
     {
@@ -296,7 +298,6 @@ public sealed class DaprAgentsBuilderExtensionsSkillsTests
         var context = await provider.InvokingAsync(new AIContextProvider.InvokingContext(agent, session, new AIContext()));
         return context.Tools!.ToList();
     }
-
 
     private static AgentInlineSkill MakeSkill(string name, string? description = null) =>
         new(name: name, description: description ?? $"Skill '{name}'.", instructions: $"Follow the '{name}' skill's guidance.");

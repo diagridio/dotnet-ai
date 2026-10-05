@@ -10,7 +10,7 @@ at runtime, discovered via all three mechanisms MAF supports and mixed together 
 - **Class-based** — a `greeting-formalizer` skill (`GreetingSkill : AgentClassSkill<GreetingSkill>`) whose
   script is a plain C# method attributed with `[AgentSkillScript]`.
 
-`UseScriptApproval()` also gates skill scripts (like `greeting-formalizer`'s) behind human approval —
+`UseOptions(o => o.DisableRunSkillScriptApproval = false)` also gates skill scripts (like `greeting-formalizer`'s) behind human approval —
 see `IToolApprovalHandler` and the `ConsoleApprovingToolApprovalHandler` in `Program.cs`.
 
 ## Prerequisites
