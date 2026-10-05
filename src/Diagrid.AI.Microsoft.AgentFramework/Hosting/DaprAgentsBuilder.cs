@@ -95,23 +95,32 @@ internal sealed class DaprAgentsBuilder(IServiceCollection services) : IAgentsBu
     }
 
     /// <summary>
-    /// Traverses the <see cref="IChatClient"/> pipeline and returns the first client
-    /// that is NOT a <see cref="FunctionInvokingChatClient"/>.
-    /// This gives us the raw client suitable for single-turn LLM calls.
+    /// Traverses the <see cref="IChatClient"/> pipeline and returns the client directly below the
+    /// innermost <see cref="FunctionInvokingChatClient"/>, or <paramref name="client"/> itself when the
+    /// pipeline has none. This gives us the raw client suitable for single-turn LLM calls, so tools
+    /// run in their own workflow activity instead of inside the LLM call.
+    /// <see cref="ChatClientAgent"/> may place decorators above the <see cref="FunctionInvokingChatClient"/>
+    /// (e.g. its approval decorators), so the whole <see cref="DelegatingChatClient"/> chain is walked.
     /// Uses <see cref="UnsafeAccessorAttribute"/> for AOT-safe access to the protected
     /// <see cref="DelegatingChatClient.InnerClient"/> property.
     /// </summary>
     internal static IChatClient UnwrapFunctionInvoking(IChatClient client)
     {
-        while (client is FunctionInvokingChatClient fic)
+        var result = client;
+        var current = client;
+        while (current is DelegatingChatClient delegating)
         {
-            var inner = GetInnerClient(fic);
-            if (inner is null || ReferenceEquals(inner, client))
+            var inner = GetInnerClient(delegating);
+            if (inner is null || ReferenceEquals(inner, current))
                 break;
-            client = inner;
+
+            if (current is FunctionInvokingChatClient)
+                result = inner;
+
+            current = inner;
         }
 
-        return client;
+        return result;
     }
 
     /// <summary>
