@@ -99,8 +99,8 @@ public static class DaprAgentsBuilderExtensions
 
     /// <summary>
     /// Attaches an MAF skills provider built from the given <see cref="AgentSkill"/> instances to the
-    /// named agent — covers file-based (<c>AgentFileSkill</c>, via <c>AgentSkillsProvider(skillPath)</c>
-    /// on the other overload), inline (<see cref="AgentInlineSkill"/>), and class-based
+    /// named agent — covers file-based (<c>AgentFileSkill</c>, via <c>UseFileSkills(...)</c>
+    /// on the builder overload), inline (<see cref="AgentInlineSkill"/>), and class-based
     /// (<c>AgentClassSkill&lt;T&gt;</c>) skill sources, since they all derive from <see cref="AgentSkill"/>.
     /// </summary>
     /// <param name="builder">The agents builder.</param>

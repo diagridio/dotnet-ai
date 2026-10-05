@@ -273,6 +273,21 @@ public sealed class DaprAgentsBuilderExtensionsSkillsTests
         Assert.Equal("run_skill_script", gated.Name);
     }
 
+    [Fact]
+    public async Task WithSkills_Configure_CallerCanReEnableLoadAndReadApproval()
+    {
+        var tools = await ResolveSkillToolsAsync(b => b.WithSkills("agent", s => s
+            .UseSkill(MakeSkill("s"))
+            .UseOptions(o =>
+            {
+                o.DisableLoadSkillApproval = false;
+                o.DisableReadSkillResourceApproval = false;
+            })));
+
+        var gated = tools.Where(t => t is ApprovalRequiredAIFunction).Select(t => t.Name).Order();
+        Assert.Equal(["load_skill", "read_skill_resource"], gated);
+    }
+
     // =========================================================================
     // Helpers
     // =========================================================================
