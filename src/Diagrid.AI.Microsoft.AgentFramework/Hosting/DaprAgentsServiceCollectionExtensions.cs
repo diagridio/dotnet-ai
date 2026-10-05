@@ -54,7 +54,7 @@ public static class DaprAgentsServiceCollectionExtensions
         services.AddSingleton<ToolRegistry>();
 
         // Safe-by-default approval gate for tools that require human approval (e.g. an MAF skill
-        // script when AgentSkillsProviderOptions.ScriptApproval is enabled) — denies until a host
+        // script when AgentSkillsProviderOptions.DisableRunSkillScriptApproval is false) — denies until a host
         // registers its own IToolApprovalHandler (register it BEFORE calling AddDaprAgents()).
         services.TryAddSingleton<IToolApprovalHandler, DenyingToolApprovalHandler>();
 

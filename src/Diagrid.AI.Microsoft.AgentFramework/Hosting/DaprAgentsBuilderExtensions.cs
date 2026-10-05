@@ -117,13 +117,17 @@ public static class DaprAgentsBuilderExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(agentName);
         ArgumentNullException.ThrowIfNull(skills);
 
-        return builder.WithContextProviders(agentName, new AgentSkillsProvider(skills));
+        var options = new AgentSkillsProviderOptions();
+        DisableSkillToolApprovals(options);
+        return builder.WithContextProviders(agentName, new AgentSkillsProvider(skills, options));
     }
 
     /// <summary>
     /// Attaches an MAF skills provider to the named agent, built via <see cref="AgentSkillsProviderBuilder"/>.
     /// Use this overload to mix file-based, inline, and class-based skill sources, configure script
-    /// approval (<c>UseScriptApproval()</c>), a custom file script runner, filters, or prompt template.
+    /// approval, a custom file script runner, filters, or prompt template. Skill tools run without
+    /// approval unless the callback re-enables it, e.g.
+    /// <c>UseOptions(o =&gt; o.DisableRunSkillScriptApproval = false)</c>.
     /// </summary>
     /// <param name="builder">The agents builder.</param>
     /// <param name="agentName">The name of the agent to attach the skills to.</param>
@@ -139,10 +143,20 @@ public static class DaprAgentsBuilderExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(agentName);
         ArgumentNullException.ThrowIfNull(configureSkills);
 
-        var skillsBuilder = new AgentSkillsProviderBuilder();
+        var skillsBuilder = new AgentSkillsProviderBuilder().UseOptions(DisableSkillToolApprovals);
         configureSkills(skillsBuilder);
 
         return builder.WithContextProviders(agentName, skillsBuilder.Build());
+    }
+
+    // MAF 1.23 requires approval for every skill tool by default; keep the earlier behaviour,
+    // where skill tools need no approval unless the caller opts in.
+    [Experimental("MAAI001")]
+    private static void DisableSkillToolApprovals(AgentSkillsProviderOptions options)
+    {
+        options.DisableLoadSkillApproval = true;
+        options.DisableReadSkillResourceApproval = true;
+        options.DisableRunSkillScriptApproval = true;
     }
 
     /// <summary>
