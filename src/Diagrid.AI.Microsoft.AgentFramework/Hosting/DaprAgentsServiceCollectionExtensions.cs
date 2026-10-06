@@ -17,6 +17,7 @@ using Dapr.StateManagement.Extensions;
 using Dapr.Workflow;
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
+using Diagrid.AI.Microsoft.AgentFramework.Telemetry;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -38,6 +39,17 @@ public static class DaprAgentsServiceCollectionExtensions
         Action<DaprAgentsSerializationOptions>? configureSerialization = null,
         Action<WorkflowRuntimeOptions>? registrations = null)
     {
+        // One anonymous usage event per process, never blocking and never throwing. See
+        // UsageAnalytics and the README "Usage analytics" section.
+        UsageAnalytics.Report(
+            "Diagrid.AI.Microsoft.AgentFramework",
+            new Dictionary<string, string?>
+            {
+                ["kind"] = "agent",
+                ["framework"] = "MicrosoftAgentFramework",
+                ["framework_version"] = UsageAnalytics.FrameworkVersion(),
+            });
+
         // Always register the Dapr Conversation client infrastructure. Per-agent keyed
         // DaprChatClient registrations (via conversationComponentName) depend on this
         // shared HTTP/gRPC plumbing, so it must be present regardless of which
