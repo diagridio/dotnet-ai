@@ -111,6 +111,46 @@ public sealed class ResolveAgentContextActivityTests
     }
 
     [Fact]
+    public async Task RunAsync_ProviderSeesAgentInstructionsToolsAndRequestMessages_ButOutputOnlyHasContribution()
+    {
+        var agentTool = AIFunctionFactory.Create(() => "x", name: "agent_tool");
+        var extra = AIFunctionFactory.Create(() => "y", name: "extra_tool");
+        string? seenInstructions = null;
+        IList<AITool>? seenTools = null;
+        IList<ChatMessage>? seenMessages = null;
+        var provider = new FakeContextProvider
+        {
+            Instructions = "Extra.",
+            Tools = [extra],
+            OnInvoking = ctx =>
+            {
+                seenInstructions = ctx.AIContext.Instructions;
+                seenTools = ctx.AIContext.Tools?.ToList();
+                seenMessages = ctx.AIContext.Messages?.ToList();
+            }
+        };
+
+        var (activity, chatClientRegistry, toolRegistry) = Build();
+        chatClientRegistry.Register(AgentName, new TestChatClient(), "Base.", [agentTool], [provider]);
+
+        var output = await activity.RunAsync(
+            MakeContext(),
+            new ResolveAgentContextInput(AgentName, null)
+            {
+                RequestMessages = [new WorkflowChatMessage { Role = "user", Content = "hello" }]
+            });
+
+        Assert.Equal("Base.", seenInstructions);
+        Assert.Contains(agentTool, seenTools!);
+        Assert.Equal("hello", Assert.Single(seenMessages!).Text);
+
+        Assert.Equal("Extra.", output.Instructions);
+        Assert.Equal(["extra_tool"], output.ToolNames);
+        Assert.Null(output.Messages is { Count: > 0 } ? output.Messages : null);
+        Assert.Same(extra, toolRegistry.Get(AgentName, "extra_tool"));
+    }
+
+    [Fact]
     public async Task RunAsync_ProviderThrows_PropagatesException()
     {
         var provider = new FakeContextProvider { ThrowOnInvoking = new InvalidOperationException("boom") };
