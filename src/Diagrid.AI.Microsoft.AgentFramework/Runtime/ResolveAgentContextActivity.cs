@@ -123,7 +123,9 @@ internal sealed partial class ResolveAgentContextActivity(
             }
         }
 
-        // Strip the seed back out so only the providers' contribution remains.
+        // Strip the seed back out so only the providers' contribution remains. Instructions are
+        // only stripped when the result still starts with the base instructions; a provider that
+        // replaces or prepends to them has its full text returned unchanged.
         var instructions = accumulated.Instructions;
         if (seedInstructions is not null && instructions is not null && instructions.StartsWith(seedInstructions, StringComparison.Ordinal))
         {
