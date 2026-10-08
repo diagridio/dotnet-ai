@@ -87,7 +87,18 @@ internal sealed partial class ResolveAgentContextActivity(
         var session = await agent.CreateSessionAsync().ConfigureAwait(false);
         var requestMessages = input.RequestMessages.Select(WorkflowChatMessageConverter.ToChatMessage).ToList();
 
-        var accumulated = new AIContext();
+        // Seed the context the way ChatClientAgent does: providers see the agent's instructions,
+        // tools and the run's request messages. Only what providers add on top is returned, so the
+        // seed is not duplicated once CallLlmActivity sends the real instructions/tools/history.
+        var seedTools = config.Tools is { Count: > 0 } ? config.Tools.ToList() : null;
+        var seedMessages = requestMessages.Count > 0 ? requestMessages.ToList() : null;
+        var seedInstructions = string.IsNullOrWhiteSpace(config.Instructions) ? null : config.Instructions;
+        var accumulated = new AIContext
+        {
+            Instructions = seedInstructions,
+            Messages = seedMessages,
+            Tools = seedTools
+        };
         using (AgentRunContextScope.Enter(agent, session, requestMessages, input.Options))
         {
             foreach (var provider in providers)
@@ -112,11 +123,29 @@ internal sealed partial class ResolveAgentContextActivity(
             }
         }
 
+        // Strip the seed back out so only the providers' contribution remains. Instructions are
+        // only stripped when the result still starts with the base instructions; a provider that
+        // replaces or prepends to them has its full text returned unchanged.
+        var instructions = accumulated.Instructions;
+        if (seedInstructions is not null && instructions is not null && instructions.StartsWith(seedInstructions, StringComparison.Ordinal))
+        {
+            instructions = instructions[seedInstructions.Length..].TrimStart('\r', '\n');
+        }
+
+        var contributedMessages = accumulated.Messages?
+            .Where(m => seedMessages is null || !seedMessages.Contains(m))
+            .ToList();
+
         List<string>? toolNames = null;
         if (accumulated.Tools is not null)
         {
             foreach (var tool in accumulated.Tools)
             {
+                if (seedTools is not null && seedTools.Contains(tool))
+                {
+                    continue;
+                }
+
                 if (tool is not AIFunction function)
                 {
                     continue;
@@ -133,8 +162,8 @@ internal sealed partial class ResolveAgentContextActivity(
 
         return new ResolveAgentContextOutput
         {
-            Instructions = string.IsNullOrWhiteSpace(accumulated.Instructions) ? null : accumulated.Instructions,
-            Messages = accumulated.Messages?.Select(WorkflowChatMessageConverter.FromChatMessage).ToList(),
+            Instructions = string.IsNullOrWhiteSpace(instructions) ? null : instructions,
+            Messages = contributedMessages?.Select(WorkflowChatMessageConverter.FromChatMessage).ToList(),
             ToolNames = toolNames,
             SerializedSessionJson = serializedSession.GetRawText()
         };

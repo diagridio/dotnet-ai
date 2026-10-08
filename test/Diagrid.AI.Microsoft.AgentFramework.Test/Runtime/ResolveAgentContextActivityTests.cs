@@ -111,6 +111,103 @@ public sealed class ResolveAgentContextActivityTests
     }
 
     [Fact]
+    public async Task RunAsync_ProviderSeesAgentInstructionsToolsAndRequestMessages_ButOutputOnlyHasContribution()
+    {
+        var agentTool = AIFunctionFactory.Create(() => "x", name: "agent_tool");
+        var extra = AIFunctionFactory.Create(() => "y", name: "extra_tool");
+        string? seenInstructions = null;
+        IList<AITool>? seenTools = null;
+        IList<ChatMessage>? seenMessages = null;
+        var provider = new FakeContextProvider
+        {
+            Instructions = "Extra.",
+            Tools = [extra],
+            OnInvoking = ctx =>
+            {
+                seenInstructions = ctx.AIContext.Instructions;
+                seenTools = ctx.AIContext.Tools?.ToList();
+                seenMessages = ctx.AIContext.Messages?.ToList();
+            }
+        };
+
+        var (activity, chatClientRegistry, toolRegistry) = Build();
+        chatClientRegistry.Register(AgentName, new TestChatClient(), "Base.", [agentTool], [provider]);
+
+        var output = await activity.RunAsync(
+            MakeContext(),
+            new ResolveAgentContextInput(AgentName, null)
+            {
+                RequestMessages = [new WorkflowChatMessage { Role = "user", Content = "hello" }]
+            });
+
+        Assert.Equal("Base.", seenInstructions);
+        Assert.Contains(agentTool, seenTools!);
+        Assert.Equal("hello", Assert.Single(seenMessages!).Text);
+
+        Assert.Equal("Extra.", output.Instructions);
+        Assert.Equal(["extra_tool"], output.ToolNames);
+        Assert.True(output.Messages is null or { Count: 0 });
+        Assert.Same(extra, toolRegistry.Get(AgentName, "extra_tool"));
+    }
+
+    [Fact]
+    public async Task RunAsync_ProviderAppendsMessage_OutputHasOnlyContributedMessage_NotSeededRequest()
+    {
+        var provider = new FakeContextProvider { Messages = [new ChatMessage(ChatRole.User, "from provider")] };
+        var (activity, chatClientRegistry, _) = Build();
+        chatClientRegistry.Register(AgentName, new TestChatClient(), null, null, [provider]);
+
+        var output = await activity.RunAsync(
+            MakeContext(),
+            new ResolveAgentContextInput(AgentName, null)
+            {
+                RequestMessages = [new WorkflowChatMessage { Role = "user", Content = "hello" }]
+            });
+
+        var msg = Assert.Single(output.Messages!);
+        Assert.Equal("from provider", msg.Content);
+    }
+
+    [Fact]
+    public async Task RunAsync_ProviderRewritesInstructionsWithoutBasePrefix_ReturnedUnchanged()
+    {
+        // Documented behaviour: the base instructions are only stripped when the provider's result
+        // still starts with them. A provider that replaces or prepends to them has its full text
+        // returned as the contribution.
+        var provider = new RewritingProvider(_ => "Replaced.");
+        var (activity, chatClientRegistry, _) = Build();
+        chatClientRegistry.Register(AgentName, new TestChatClient(), "Base.", null, [provider]);
+
+        var output = await activity.RunAsync(MakeContext(), new ResolveAgentContextInput(AgentName, null));
+
+        Assert.Equal("Replaced.", output.Instructions);
+    }
+
+    [Fact]
+    public async Task RunAsync_ProviderPrependsOwnTextBeforeBase_ReturnedUnchanged()
+    {
+        var provider = new RewritingProvider(seed => "Before.\n" + seed);
+        var (activity, chatClientRegistry, _) = Build();
+        chatClientRegistry.Register(AgentName, new TestChatClient(), "Base.", null, [provider]);
+
+        var output = await activity.RunAsync(MakeContext(), new ResolveAgentContextInput(AgentName, null));
+
+        Assert.Equal("Before.\nBase.", output.Instructions);
+    }
+
+    [Fact]
+    public async Task RunAsync_ProviderAppendsAfterBase_BaseStripped()
+    {
+        var provider = new RewritingProvider(seed => seed + "\nAfter.");
+        var (activity, chatClientRegistry, _) = Build();
+        chatClientRegistry.Register(AgentName, new TestChatClient(), "Base.", null, [provider]);
+
+        var output = await activity.RunAsync(MakeContext(), new ResolveAgentContextInput(AgentName, null));
+
+        Assert.Equal("After.", output.Instructions);
+    }
+
+    [Fact]
     public async Task RunAsync_ProviderThrows_PropagatesException()
     {
         var provider = new FakeContextProvider { ThrowOnInvoking = new InvalidOperationException("boom") };
@@ -300,6 +397,17 @@ public sealed class ResolveAgentContextActivityTests
 
         protected override ValueTask StoreAIContextAsync(InvokedContext context, CancellationToken cancellationToken = default) =>
             ValueTask.CompletedTask;
+    }
+
+    private sealed class RewritingProvider(Func<string, string> rewrite) : AIContextProvider
+    {
+        protected override ValueTask<AIContext> InvokingCoreAsync(InvokingContext context, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new AIContext
+            {
+                Instructions = rewrite(context.AIContext.Instructions ?? string.Empty),
+                Messages = context.AIContext.Messages,
+                Tools = context.AIContext.Tools
+            });
     }
 
     private sealed class EmptyServiceProvider : IServiceProvider
