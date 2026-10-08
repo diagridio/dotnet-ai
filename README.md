@@ -152,7 +152,7 @@ builder.Services.AddDaprAgents()
             description: "Tells a short, work-appropriate joke on request.",
             instructions: "When asked for a joke, tell exactly one short, clean joke."))
         .UseSkill(new GreetingSkill())                        // Class-based: AgentClassSkill<T>
-        .UseScriptApproval());                                // Require approval before running scripts
+        .UseOptions(o => o.DisableRunSkillScriptApproval = false)); // Require approval before running scripts
 
 var app = builder.Build();
 ```
@@ -167,9 +167,13 @@ Any `AIContextProvider` — not just skills — can be attached to an agent the 
 `WithContextProviders(...)`.
 
 ### Script approval
-Skill-bundled scripts can require human approval before they run
-(`AgentSkillsProviderBuilder.UseScriptApproval()`). Implement `IToolApprovalHandler` and register it
-*before* calling `AddDaprAgents()` to decide whether a given call is allowed to proceed — without one
+Skill tools attached via `WithSkills(...)` run without approval by default. To require human
+approval before a skill-bundled script runs, set `o.DisableRunSkillScriptApproval = false` in
+`AgentSkillsProviderBuilder.UseOptions` (the same applies to `DisableLoadSkillApproval` and
+`DisableReadSkillResourceApproval`). An `AgentSkillsProvider` you construct yourself and attach via
+`WithContextProviders(...)` keeps MAF's own default, where all three tools require approval.
+
+Implement `IToolApprovalHandler` and register it *before* calling `AddDaprAgents()` to decide whether a given call is allowed to proceed — without one
 registered, every approval-required call is denied by default:
 
 ```csharp
