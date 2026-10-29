@@ -5,6 +5,8 @@
     "target": "ES2020",
     "lib": ["ES2020"],
     "moduleResolution": "Node",
+    // node10 resolution is deprecated in TypeScript 6 and removed in 7.
+    "ignoreDeprecations": "6.0",
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
