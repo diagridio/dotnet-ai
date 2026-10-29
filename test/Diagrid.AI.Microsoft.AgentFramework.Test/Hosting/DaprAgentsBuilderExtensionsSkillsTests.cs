@@ -232,7 +232,7 @@ public sealed class DaprAgentsBuilderExtensionsSkillsTests
         builder.WithSkills("configured-agent", b =>
         {
             configured = true;
-            b.UseSkill(MakeSkill("s")).UseScriptApproval();
+            b.UseSkill(MakeSkill("s")).UseOptions(o => o.DisableRunSkillScriptApproval = false);
         });
 
         var serviceProvider = services.BuildServiceProvider();
@@ -244,9 +244,75 @@ public sealed class DaprAgentsBuilderExtensionsSkillsTests
         Assert.IsType<AgentSkillsProvider>(Assert.Single(config!.ContextProviders!));
     }
 
+    [Fact]
+    public async Task WithSkills_Array_SkillToolsDoNotRequireApproval()
+    {
+        var tools = await ResolveSkillToolsAsync(b => b.WithSkills("agent", MakeSkill("s")));
+
+        Assert.Equal(SkillToolNames, tools.Select(t => t.Name).Order());
+        Assert.DoesNotContain(tools, t => t is ApprovalRequiredAIFunction);
+    }
+
+    [Fact]
+    public async Task WithSkills_Configure_SkillToolsDoNotRequireApprovalByDefault()
+    {
+        var tools = await ResolveSkillToolsAsync(b => b.WithSkills("agent", s => s.UseSkill(MakeSkill("s"))));
+
+        Assert.Equal(SkillToolNames, tools.Select(t => t.Name).Order());
+        Assert.DoesNotContain(tools, t => t is ApprovalRequiredAIFunction);
+    }
+
+    [Fact]
+    public async Task WithSkills_Configure_CallerCanReEnableScriptApproval()
+    {
+        var tools = await ResolveSkillToolsAsync(b => b.WithSkills("agent", s => s
+            .UseSkill(MakeSkill("s"))
+            .UseOptions(o => o.DisableRunSkillScriptApproval = false)));
+
+        var gated = Assert.Single(tools, t => t is ApprovalRequiredAIFunction);
+        Assert.Equal("run_skill_script", gated.Name);
+    }
+
+    [Fact]
+    public async Task WithSkills_Configure_CallerCanReEnableLoadAndReadApproval()
+    {
+        var tools = await ResolveSkillToolsAsync(b => b.WithSkills("agent", s => s
+            .UseSkill(MakeSkill("s"))
+            .UseOptions(o =>
+            {
+                o.DisableLoadSkillApproval = false;
+                o.DisableReadSkillResourceApproval = false;
+            })));
+
+        var gated = tools.Where(t => t is ApprovalRequiredAIFunction).Select(t => t.Name).Order();
+        Assert.Equal(["load_skill", "read_skill_resource"], gated);
+    }
+
     // =========================================================================
     // Helpers
     // =========================================================================
+
+    private static readonly string[] SkillToolNames = ["load_skill", "read_skill_resource", "run_skill_script"];
+
+    private static async Task<IList<AITool>> ResolveSkillToolsAsync(Action<IAgentsBuilder> configure)
+    {
+        var services = new ServiceCollection();
+        var chatClient = new TestChatClient();
+        services.AddSingleton<IChatClient>(chatClient);
+        var builder = services.AddDaprAgents();
+        builder.WithAgent("agent", "Be helpful.");
+        configure(builder);
+
+        var serviceProvider = services.BuildServiceProvider();
+        FindRegistration(services, "agent").Factory(serviceProvider);
+        var config = serviceProvider.GetRequiredService<ChatClientRegistry>().Get("agent");
+        var provider = Assert.IsType<AgentSkillsProvider>(Assert.Single(config!.ContextProviders!));
+
+        var agent = new ChatClientAgent(chatClient);
+        var session = await agent.CreateSessionAsync();
+        var context = await provider.InvokingAsync(new AIContextProvider.InvokingContext(agent, session, new AIContext()));
+        return context.Tools!.ToList();
+    }
 
     private static AgentInlineSkill MakeSkill(string name, string? description = null) =>
         new(name: name, description: description ?? $"Skill '{name}'.", instructions: $"Follow the '{name}' skill's guidance.");

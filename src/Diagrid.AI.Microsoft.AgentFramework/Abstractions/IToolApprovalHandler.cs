@@ -17,7 +17,7 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Abstractions;
 /// <summary>
 /// Decides whether a tool call that requires human approval — i.e. one whose resolved
 /// <see cref="AIFunction"/> is a <see cref="ApprovalRequiredAIFunction"/>,
-/// such as an MAF skill script when <c>AgentSkillsProviderOptions.ScriptApproval</c> is enabled —
+/// such as an MAF skill script when <c>AgentSkillsProviderOptions.DisableRunSkillScriptApproval</c> is false —
 /// is allowed to run.
 /// </summary>
 /// <remarks>

@@ -256,6 +256,32 @@ public sealed class DaprAgentsBuilderTests
         Assert.Same(innermost, result);
     }
 
+    [Fact]
+    public void UnwrapFunctionInvoking_DecoratorAboveFunctionInvoking_ReturnsClientBelowIt()
+    {
+        var leaf = new Mock<IChatClient>().Object;
+        var outer = new PassThroughChatClient(new FunctionInvokingChatClient(leaf));
+
+        var result = DaprAgentsBuilder.UnwrapFunctionInvoking(outer);
+
+        Assert.Same(leaf, result);
+    }
+
+    [Fact]
+    public void UnwrapFunctionInvoking_ChatClientAgentPipeline_HasNoFunctionInvokingClient()
+    {
+        // ChatClientAgent places its own decorators above FunctionInvokingChatClient; the
+        // unwrapped client must still bypass it, or tools run inside the LLM activity.
+        var leaf = new Mock<IChatClient>().Object;
+        var agent = leaf.AsAIAgent(instructions: "test", name: "unwrap-agent");
+
+        var result = DaprAgentsBuilder.UnwrapFunctionInvoking(agent.ChatClient);
+
+        Assert.Null(result.GetService<FunctionInvokingChatClient>());
+    }
+
+    private sealed class PassThroughChatClient(IChatClient inner) : DelegatingChatClient(inner);
+
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
