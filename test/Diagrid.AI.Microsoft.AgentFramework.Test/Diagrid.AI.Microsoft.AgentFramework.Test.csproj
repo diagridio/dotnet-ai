@@ -26,6 +26,11 @@
     </ItemGroup>
 
     <ItemGroup>
+        <!-- Vendored from dapr/dapr-agents schemas/agent-metadata; the Catalyst registry format. -->
+        <None Include="Catalyst\Schemas\*.json" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+    <ItemGroup>
       <ProjectReference Include="..\..\src\Diagrid.AI.Microsoft.AgentFramework\Diagrid.AI.Microsoft.AgentFramework.csproj" />
     </ItemGroup>
 

@@ -75,7 +75,7 @@ internal sealed class CatalystAgentRegistryHostedService(
 
 	private static string GetAgentStateKey(string agentName) => $"{AgentMetadataStateKeyPrefix}:{agentName}";
 
-	private AgentMetadataSchema BuildAgentMetadata(AIAgent agent, DaprMetadata daprMetadata)
+	internal AgentMetadataSchema BuildAgentMetadata(AIAgent agent, DaprMetadata daprMetadata)
 	{
 		var config = chatClientRegistry.Get(agent.Name!);
 		var conversationComponent = FindConversationComponent(daprMetadata, agent.Name!, config?.ChatClient);
@@ -150,7 +150,8 @@ internal sealed class CatalystAgentRegistryHostedService(
 			.Select(tool => new ToolMetadata(
 				tool.Name,
 				tool.Description,
-				"{}"))
+				// Matches dapr-agents, which publishes each tool's argument schema as a JSON string.
+				tool is AIFunctionDeclaration function ? function.JsonSchema.GetRawText() : "{}"))
 			.ToList();
 	}
 }
