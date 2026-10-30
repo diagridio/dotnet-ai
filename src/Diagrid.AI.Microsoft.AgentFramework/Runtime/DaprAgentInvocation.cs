@@ -42,4 +42,11 @@ public sealed record DaprAgentInvocation(
     /// Custom OpenTelemetry baggage values to apply inside workflow activities.
     /// </summary>
     public Dictionary<string, string?>? TelemetryBaggage { get; init; }
+
+    /// <summary>
+    /// The stored conversation the run continues, or <see langword="null"/> for none. The run's LLM calls see
+    /// every turn committed to it, and a successful run appends its own turn. Requires
+    /// <c>WithConversationStore(...)</c>, and cannot be combined with <see cref="PriorMessages"/>.
+    /// </summary>
+    public string? ConversationId { get; init; }
 }

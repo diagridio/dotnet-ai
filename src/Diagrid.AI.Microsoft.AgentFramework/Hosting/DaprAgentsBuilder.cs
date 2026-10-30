@@ -11,8 +11,10 @@
 // the Apache License, Version 2.0.
 
 using System.Runtime.CompilerServices;
+using Dapr.Workflow;
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
 using Diagrid.AI.Microsoft.AgentFramework.Catalyst;
+using Diagrid.AI.Microsoft.AgentFramework.Runtime;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,9 +24,17 @@ using Microsoft.Extensions.Options;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.Hosting;
 
-internal sealed class DaprAgentsBuilder(IServiceCollection services) : IAgentsBuilder
+internal sealed class DaprAgentsBuilder(
+    IServiceCollection services,
+    WorkflowServiceCollectionExtensions.DaprWorkflowBuilder workflowBuilder) : IAgentsBuilder
 {
     internal IServiceCollection Services { get; } = services;
+
+    /// <summary>
+    /// The Dapr Workflow builder <c>AddDaprAgents</c> created. Its constructor is internal to the Dapr SDK,
+    /// so builder extensions such as <c>WithBinaryStorePayloads</c> can only reach it through here.
+    /// </summary>
+    internal WorkflowServiceCollectionExtensions.DaprWorkflowBuilder WorkflowBuilder { get; } = workflowBuilder;
 
     public IAgentsBuilder WithAgent(Func<IServiceProvider, AIAgent> factory)
     {
@@ -80,12 +90,32 @@ internal sealed class DaprAgentsBuilder(IServiceCollection services) : IAgentsBu
             if (agent is ChatClientAgent cca)
             {
                 var rawChatClient = UnwrapFunctionInvoking(cca.ChatClient);
-                DaprAgentsBuilderExtensions.RegisterAgentComponents(sp, agent, rawChatClient);
+                AgentComponentRegistrar.RegisterAgentComponents(sp, agent, rawChatClient);
             }
 
             return agent;
         }
     }
+
+    /// <summary>
+    /// <paramref name="builder"/> as the <see cref="DaprAgentsBuilder"/> <c>AddDaprAgents</c> created, for the builder
+    /// extensions that need more than <see cref="IAgentsBuilder"/> exposes. Any other implementation cannot provide it.
+    /// </summary>
+    /// <param name="builder">The agents builder an extension was called on.</param>
+    /// <param name="needed">What the extension needs, completing "The agents builder does not ...".</param>
+    /// <returns>The builder.</returns>
+    /// <exception cref="InvalidOperationException"><paramref name="builder"/> is not a <see cref="DaprAgentsBuilder"/>.</exception>
+    internal static DaprAgentsBuilder From(IAgentsBuilder builder, string needed) =>
+        builder as DaprAgentsBuilder ?? throw Unsupported(needed);
+
+    /// <summary>
+    /// The error for an agents builder that cannot provide <paramref name="needed"/>, with the message every builder
+    /// extension uses: "The agents builder does not {needed}."
+    /// </summary>
+    /// <param name="needed">What was needed, completing "The agents builder does not ...".</param>
+    /// <returns>The exception to throw.</returns>
+    internal static InvalidOperationException Unsupported(string needed) =>
+        new($"The agents builder does not {needed}.");
 
     internal IAgentsBuilder WithAgentRegistration(AgentFactoryRegistration registration)
     {
@@ -112,6 +142,37 @@ internal sealed class DaprAgentsBuilder(IServiceCollection services) : IAgentsBu
         }
 
         return client;
+    }
+
+    /// <summary>
+    /// The client a <see cref="DelegatingChatClient"/> wraps, for walking a client pipeline.
+    /// </summary>
+    internal static IChatClient? GetDelegatingInnerClient(DelegatingChatClient client) =>
+        GetInnerClient(client);
+
+    /// <summary>
+    /// Whether <paramref name="chatClient"/> is, or wraps at any depth, a <c>DaprChatClient</c>. Walks the pipeline
+    /// here, next to <see cref="GetDelegatingInnerClient"/>, so the runtime does not need to know how it is built.
+    /// </summary>
+    internal static bool IsDaprChatClient(IChatClient chatClient)
+    {
+        var seen = new HashSet<IChatClient>(ReferenceEqualityComparer.Instance);
+        for (IChatClient? client = chatClient; client is not null && seen.Add(client);)
+        {
+            if (client.GetType().Name == "DaprChatClient")
+            {
+                return true;
+            }
+
+            client = client switch
+            {
+                ToolResultCompatibilityChatClient wrapper => wrapper.InnerClient,
+                DelegatingChatClient delegating => GetDelegatingInnerClient(delegating),
+                _ => null
+            };
+        }
+
+        return false;
     }
 
     /// <summary>

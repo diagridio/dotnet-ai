@@ -42,6 +42,18 @@ internal sealed class ChatClientRegistry
     }
 
     /// <summary>
+    /// Agents already warned that their chat client ignores the reasoning effort, so
+    /// <see cref="CallLlmActivity"/> warns once per agent and host rather than on every LLM call.
+    /// </summary>
+    /// <remarks>
+    /// It lives here, not on <see cref="CallLlmActivity"/>, because an activity keeps no state from one call to the
+    /// next, while this registry is the host-wide singleton already keyed by agent name; a set of its own would be one
+    /// more singleton to register for a single flag per agent.
+    /// </remarks>
+    internal ConcurrentDictionary<string, bool> WarnedIgnoredReasoningEffort { get; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Creates a registry seeded with <see cref="ContextProviderRegistration"/> instances collected
     /// from DI (added via <c>WithContextProviders</c>/<c>WithSkills</c> at startup).
     /// </summary>
@@ -72,13 +84,14 @@ internal sealed class ChatClientRegistry
         IChatClient chatClient,
         string? instructions,
         IList<AITool>? tools,
-        IReadOnlyList<AIContextProvider>? contextProviders)
+        IReadOnlyList<AIContextProvider>? contextProviders,
+        ChatOptions? baseOptions = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentName);
         ArgumentNullException.ThrowIfNull(chatClient);
 
         var merged = MergeWithPendingContextProviders(agentName, contextProviders);
-        _configs[agentName] = new AgentChatConfig(chatClient, instructions, tools, merged);
+        _configs[agentName] = new AgentChatConfig(chatClient, instructions, tools, merged, baseOptions);
     }
 
     /// <summary>
@@ -151,5 +164,6 @@ internal sealed class ChatClientRegistry
         IChatClient ChatClient,
         string? Instructions,
         IList<AITool>? Tools,
-        IReadOnlyList<AIContextProvider>? ContextProviders = null);
+        IReadOnlyList<AIContextProvider>? ContextProviders = null,
+        ChatOptions? BaseOptions = null);
 }

@@ -53,14 +53,8 @@ internal sealed partial class CompleteAgentContextActivity(
     /// <inheritdoc />
     public override async Task<CompleteAgentContextOutput> RunAsync(WorkflowActivityContext context, CompleteAgentContextInput input)
     {
-        var config = chatClientRegistry.Get(input.AgentName);
-        if (config is null)
-        {
-            // Trigger lazy agent resolution — this runs the factory which populates
-            // ChatClientRegistry (including any configured AIContextProviders) as a side effect.
-            agentRegistry.Get(input.AgentName, input.ChatClientKey, serviceProvider);
-            config = chatClientRegistry.Get(input.AgentName);
-        }
+        // Runs the agent's factory first when needed, which registers its AIContextProviders too.
+        var config = AgentChatConfigLookup.Find(chatClientRegistry, agentRegistry, serviceProvider, input.AgentName, input.ChatClientKey);
 
         if (config?.ContextProviders is not { Count: > 0 } providers)
         {
@@ -69,7 +63,7 @@ internal sealed partial class CompleteAgentContextActivity(
 
         var agent = agentRegistry.Get(input.AgentName, input.ChatClientKey, serviceProvider);
         var session = await GetSessionAsync(agent, input.SerializedSessionJson).ConfigureAwait(false);
-        var requestMessages = input.RequestMessages.Select(WorkflowChatMessageConverter.ToChatMessage).ToList();
+        var requestMessages = input.RequestMessages.Select(WorkflowChatMessageConverter.ToProviderMessage).ToList();
 
         using (AgentRunContextScope.Enter(agent, session, requestMessages, input.Options))
         {
@@ -87,7 +81,7 @@ internal sealed partial class CompleteAgentContextActivity(
                             agent,
                             session,
                             requestMessages,
-                            input.ResponseMessages?.Select(WorkflowChatMessageConverter.ToChatMessage) ?? []);
+                            input.ResponseMessages?.Select(WorkflowChatMessageConverter.ToProviderMessage) ?? []);
 #pragma warning restore MAAI001
 
                     await provider.InvokedAsync(invokedContext, CancellationToken.None).ConfigureAwait(false);

@@ -31,4 +31,21 @@ public sealed record AgentRunResult
 	/// Includes the user message, any LLM messages, tool calls, and tool results.
 	/// </summary>
 	public List<WorkflowChatMessage> TurnMessages { get; init; } = [];
+
+	/// <summary>
+	/// The stored conversation this run appended its turn to, or <see langword="null"/> when it ran without one.
+	/// </summary>
+	public string? ConversationId { get; init; }
+
+	/// <summary>
+	/// Where this run's turn ends in the stored conversation: the number of entries up to and including it.
+	/// <see langword="null"/> when the run had no stored conversation.
+	/// </summary>
+	public long? ConversationSequence { get; init; }
+
+	/// <summary>
+	/// <see langword="true"/> when other turns were committed to the conversation while this run was working,
+	/// so this run did not see them; its turn is stored after them. <see langword="null"/> without a conversation.
+	/// </summary>
+	public bool? ConversationBaseMoved { get; init; }
 }

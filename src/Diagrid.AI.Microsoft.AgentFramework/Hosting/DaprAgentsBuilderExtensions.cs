@@ -21,9 +21,11 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Diagrid.AI.Microsoft.AgentFramework.Hosting;
 
 /// <summary>
-/// Convenience helpers for registering agents that use keyed chat clients.
+/// Fluent registration helpers for <see cref="IAgentsBuilder"/>: agents and their chat clients, context providers and
+/// skills, LLM timeouts, and (in the other partial files) binary store payloads, model reasoning and stored
+/// conversations.
 /// </summary>
-public static class DaprAgentsBuilderExtensions
+public static partial class DaprAgentsBuilderExtensions
 {
     /// <summary>
     /// Registers an agent using an explicit registration record (including name/key).
@@ -36,12 +38,7 @@ public static class DaprAgentsBuilderExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(registration);
 
-        if (builder is DaprAgentsBuilder daprBuilder)
-        {
-            return daprBuilder.WithAgentRegistration(registration);
-        }
-
-        throw new InvalidOperationException("The agents builder does not support explicit registrations.");
+        return DaprAgentsBuilder.From(builder, "support explicit registrations").WithAgentRegistration(registration);
     }
 
     // =========================================================================
@@ -78,7 +75,7 @@ public static class DaprAgentsBuilderExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(agentName);
         ArgumentNullException.ThrowIfNull(contextProviders);
 
-        var services = GetServices(builder);
+        var services = AgentComponentRegistrar.GetServices(builder);
         services.AddSingleton(new ContextProviderRegistration(agentName, contextProviders));
 
         return builder;
@@ -145,6 +142,59 @@ public static class DaprAgentsBuilderExtensions
         return builder.WithContextProviders(agentName, skillsBuilder.Build());
     }
 
+    // =========================================================================
+    // LLM call timeouts
+    //
+    // https://github.com/diagridio/dotnet-ai/issues/42: every Dapr Conversation call used to be cut
+    // off by the 100-second HttpClient.Timeout default of the shared DaprConversationClient, which a
+    // slow (e.g. local) model easily exceeds. AddDaprAgents now lifts that shared cap and
+    // CallLlmActivity applies the timeout per call instead, so it can differ per agent.
+    // =========================================================================
+
+    /// <summary>
+    /// Sets the timeout for every LLM call made by any agent that has no timeout of its own.
+    /// Defaults to 100 seconds.
+    /// </summary>
+    /// <param name="builder">The agents builder.</param>
+    /// <param name="timeout">The timeout per LLM call, or <see cref="Timeout.InfiniteTimeSpan"/> for none.</param>
+    /// <returns>The agents builder.</returns>
+    /// <remarks>
+    /// The timeout bounds a single LLM call (one <c>CallLlmActivity</c>), not a whole agent run.
+    /// If you register your own <c>DaprConversationClient</c>, its <see cref="HttpClient.Timeout"/>
+    /// still applies on top of this one.
+    /// </remarks>
+    public static IAgentsBuilder WithLlmTimeout(this IAgentsBuilder builder, TimeSpan timeout)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        LlmTimeoutRegistration.Validate(timeout, nameof(timeout));
+
+        AgentComponentRegistrar.GetServices(builder).AddSingleton(new LlmTimeoutRegistration(null, timeout));
+
+        return builder;
+    }
+
+    /// <summary>
+    /// Sets the timeout for every LLM call made by the named agent, overriding the default set by
+    /// <see cref="WithLlmTimeout(IAgentsBuilder, TimeSpan)"/>.
+    /// </summary>
+    /// <param name="builder">The agents builder.</param>
+    /// <param name="agentName">The name of the agent the timeout applies to.</param>
+    /// <param name="timeout">The timeout per LLM call, or <see cref="Timeout.InfiniteTimeSpan"/> for none.</param>
+    /// <returns>The agents builder.</returns>
+    /// <remarks>
+    /// Can be called before or after <c>WithAgent(...)</c> for the same agent name.
+    /// </remarks>
+    public static IAgentsBuilder WithLlmTimeout(this IAgentsBuilder builder, string agentName, TimeSpan timeout)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentName);
+        LlmTimeoutRegistration.Validate(timeout, nameof(timeout));
+
+        AgentComponentRegistrar.GetServices(builder).AddSingleton(new LlmTimeoutRegistration(agentName, timeout));
+
+        return builder;
+    }
+
     /// <summary>
     /// Registers a keyed <see cref="DaprChatClient"/> and an agent that uses it.
     /// </summary>
@@ -165,7 +215,7 @@ public static class DaprAgentsBuilderExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(conversationComponentName);
         ArgumentNullException.ThrowIfNull(factory);
 
-        var services = GetServices(builder);
+        var services = AgentComponentRegistrar.GetServices(builder);
         services.AddDaprChatClient(conversationComponentName, conversationComponentName, configure, serviceLifetime);
 
         return builder.WithAgent(conversationComponentName, sp =>
@@ -198,13 +248,21 @@ public static class DaprAgentsBuilderExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(conversationComponentName);
         ArgumentNullException.ThrowIfNull(factory);
 
-        var services = GetServices(builder);
+        var services = AgentComponentRegistrar.GetServices(builder);
         services.AddDaprChatClient(conversationComponentName, conversationComponentName, configure, serviceLifetime);
 
         return builder.WithAgent(new AgentFactoryRegistration(sp =>
         {
             var chatClient = sp.GetRequiredKeyedService<IChatClient>(conversationComponentName);
-            return factory(chatClient);
+            var agent = factory(chatClient);
+
+            // Registered under the explicit name, which is what CallLlmActivity looks the agent up by.
+            if (agent is ChatClientAgent cca)
+            {
+                AgentComponentRegistrar.RegisterAgentComponents(sp, agent, DaprAgentsBuilder.UnwrapFunctionInvoking(cca.ChatClient), agentName);
+            }
+
+            return agent;
         })
         {
             Name = agentName,
@@ -234,7 +292,7 @@ public static class DaprAgentsBuilderExtensions
             var agent = chatClient.AsAIAgent(instructions: instructions, name: agentName);
 
             // Register for per-activity workflow path — no reflection needed.
-            RegisterAgentComponents(sp, agentName, chatClient, instructions, tools: null);
+            AgentComponentRegistrar.RegisterAgentComponents(sp, agentName, chatClient, instructions, tools: null);
 
             return agent;
         })
@@ -270,7 +328,7 @@ public static class DaprAgentsBuilderExtensions
             var agent = chatClient.AsAIAgent(instructions: instructions, name: agentName, description: description);
 
             // Register for per-activity workflow path — no reflection needed.
-            RegisterAgentComponents(sp, agentName, chatClient, instructions, tools: null);
+            AgentComponentRegistrar.RegisterAgentComponents(sp, agentName, chatClient, instructions, tools: null);
 
             return agent;
         })
@@ -304,7 +362,7 @@ public static class DaprAgentsBuilderExtensions
             var agent = chatClient.AsAIAgent(instructions: instructions, name: agentName, description: description);
 
             // Register for per-activity workflow path — no reflection needed.
-            RegisterAgentComponents(sp, agentName, chatClient, instructions, tools: null);
+            AgentComponentRegistrar.RegisterAgentComponents(sp, agentName, chatClient, instructions, tools: null);
 
             return agent;
         })
@@ -357,7 +415,7 @@ public static class DaprAgentsBuilderExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(conversationComponentName);
         ArgumentException.ThrowIfNullOrWhiteSpace(instructions);
 
-        var services = GetServices(builder);
+        var services = AgentComponentRegistrar.GetServices(builder);
         services.AddDaprChatClient(conversationComponentName, conversationComponentName, configure, serviceLifetime);
 
         return builder.WithAgent(new AgentFactoryRegistration(sp =>
@@ -366,7 +424,7 @@ public static class DaprAgentsBuilderExtensions
             var agent = chatClient.AsAIAgent(instructions: instructions, name: agentName, description: description);
 
             // Register for per-activity workflow path — no reflection needed.
-            RegisterAgentComponents(sp, agentName, chatClient, instructions, tools: null);
+            AgentComponentRegistrar.RegisterAgentComponents(sp, agentName, chatClient, instructions, tools: null);
 
             return agent;
         })
@@ -433,7 +491,7 @@ public static class DaprAgentsBuilderExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(instructions);
         ArgumentNullException.ThrowIfNull(tools);
 
-        var services = GetServices(builder);
+        var services = AgentComponentRegistrar.GetServices(builder);
         services.AddDaprChatClient(conversationComponentName, conversationComponentName, configure, serviceLifetime);
 
         return builder.WithAgent(new AgentFactoryRegistration(sp =>
@@ -443,7 +501,7 @@ public static class DaprAgentsBuilderExtensions
                 instructions: instructions, name: agentName, description: description, tools: [.. tools]);
 
             // Register for per-activity workflow path — no reflection needed.
-            RegisterAgentComponents(sp, agentName, chatClient, instructions, tools);
+            AgentComponentRegistrar.RegisterAgentComponents(sp, agentName, chatClient, instructions, tools);
 
             return agent;
         })
@@ -452,97 +510,4 @@ public static class DaprAgentsBuilderExtensions
             ChatClientKey = conversationComponentName,
         });
     }
-
-    /// <summary>
-    /// Extracts the <see cref="IChatClient"/>, instructions, and tools from a
-    /// <see cref="ChatClientAgent"/> and registers them in the <see cref="ChatClientRegistry"/>
-    /// and <see cref="ToolRegistry"/> so the workflow can call them as separate activities.
-    /// Uses <see cref="DaprAgentsBuilder.GetAgentChatOptions"/> (backed by
-    /// <c>[UnsafeAccessor]</c>) for AOT-safe access to the internal ChatOptions property.
-    /// </summary>
-    internal static void RegisterAgentComponents(IServiceProvider sp, AIAgent agent, IChatClient rawChatClient)
-    {
-        var agentName = agent.Name;
-        if (string.IsNullOrWhiteSpace(agentName))
-            return;
-
-        string? instructions = null;
-        IList<AITool>? tools = null;
-        IReadOnlyList<AIContextProvider>? contextProviders = null;
-
-        if (agent is ChatClientAgent cca)
-        {
-            instructions = cca.Instructions;
-            tools = DaprAgentsBuilder.GetAgentChatOptions(cca)?.Tools;
-            // Picks up AIContextProviders set via ChatClientAgentOptions (e.g. an MAF
-            // AgentSkillsProvider) with no extra API needed for this (generic factory) path.
-            contextProviders = cca.AIContextProviders is { Count: > 0 } ? cca.AIContextProviders : null;
-        }
-
-        var chatClientRegistry = sp.GetRequiredService<ChatClientRegistry>();
-        chatClientRegistry.Register(agentName, WrapIfNeeded(rawChatClient), instructions, tools, contextProviders);
-
-        var toolRegistry = sp.GetRequiredService<ToolRegistry>();
-        if (tools is { Count: > 0 })
-        {
-            foreach (var tool in tools)
-            {
-                if (tool is AIFunction fn)
-                {
-                    toolRegistry.Register(agentName, fn);
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// Registers components using explicitly provided values — no reflection or
-    /// <c>[UnsafeAccessor]</c> needed since the caller already has the raw values.
-    /// </summary>
-    private static void RegisterAgentComponents(
-        IServiceProvider sp,
-        string agentName,
-        IChatClient rawChatClient,
-        string? instructions,
-        IReadOnlyList<AITool>? tools)
-    {
-        if (string.IsNullOrWhiteSpace(agentName))
-            return;
-
-        var chatClientRegistry = sp.GetRequiredService<ChatClientRegistry>();
-        chatClientRegistry.Register(agentName, WrapIfNeeded(rawChatClient), instructions, tools as IList<AITool> ?? tools?.ToList());
-
-        if (tools is { Count: > 0 })
-        {
-            var toolRegistry = sp.GetRequiredService<ToolRegistry>();
-            foreach (var tool in tools)
-            {
-                if (tool is AIFunction fn)
-                {
-                    toolRegistry.Register(agentName, fn);
-                }
-            }
-        }
-    }
-
-    private static IServiceCollection GetServices(IAgentsBuilder builder)
-    {
-        if (builder is DaprAgentsBuilder daprBuilder)
-        {
-            return daprBuilder.Services;
-        }
-
-        throw new InvalidOperationException("The agents builder does not expose an IServiceCollection.");
-    }
-
-    /// <summary>
-    /// Wraps <paramref name="client"/> with <see cref="ToolResultCompatibilityChatClient"/>
-    /// when the underlying implementation is <c>DaprChatClient</c>, which does not natively
-    /// support <see cref="FunctionResultContent"/> in multi-turn tool conversations
-    /// (Dapr.AI.Microsoft.Extensions ≤ 1.17.x).
-    /// </summary>
-    private static IChatClient WrapIfNeeded(IChatClient client) =>
-        client.GetType().Name == "DaprChatClient"
-            ? new ToolResultCompatibilityChatClient(client)
-            : client;
 }

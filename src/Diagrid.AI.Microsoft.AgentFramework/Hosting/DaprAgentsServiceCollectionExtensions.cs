@@ -11,6 +11,7 @@
 // the Apache License, Version 2.0.
 
 using System.Text.Json.Serialization;
+using Dapr.AI.Conversation;
 using Dapr.AI.Conversation.Extensions;
 using Dapr.Metadata.Extensions;
 using Dapr.StateManagement.Extensions;
@@ -54,7 +55,18 @@ public static class DaprAgentsServiceCollectionExtensions
         // DaprChatClient registrations (via conversationComponentName) depend on this
         // shared HTTP/gRPC plumbing, so it must be present regardless of which
         // WithAgent overload the caller uses.
-        services.AddDaprConversationClient();
+        //
+        // AddDaprConversationClient appends a descriptor rather than TryAdd-ing one, so calling it
+        // unconditionally would silently override a client the host registered first (e.g. with
+        // UseTimeout). Ours lifts the 100-second HttpClient.Timeout default to the maximum, because
+        // CallLlmActivity applies the per-agent timeout from WithLlmTimeout(...) to each call.
+        // Only an unkeyed registration counts: DaprChatClient resolves the unkeyed client, so a
+        // keyed one the host registered for its own use cannot stand in for it.
+        if (!services.Any(d => d.ServiceType == typeof(DaprConversationClient) && !d.IsKeyedService))
+        {
+            services.AddDaprConversationClient((_, clientBuilder) =>
+                clientBuilder.UseTimeout(LlmTimeoutRegistration.MaxTimeout));
+        }
         services.AddDaprStateManagementClient();
         services.AddDaprMetadata();
         
@@ -102,6 +114,6 @@ public static class DaprAgentsServiceCollectionExtensions
             services.AddHostedService<AgentJsonResolverInitializer>();
         }
 
-        return new DaprAgentsBuilder(services);
+        return new DaprAgentsBuilder(services, workflowBuilder);
     }
 }

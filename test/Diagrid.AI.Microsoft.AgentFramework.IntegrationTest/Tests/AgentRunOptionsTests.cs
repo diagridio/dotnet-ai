@@ -138,6 +138,20 @@ public sealed class AgentRunOptionsTests(DaprFixture fixture)
         Assert.NotNull(snapshot.ResponseFormat);
     }
 
+    [Fact]
+    public async Task RunAgentAsync_AgentOptionsAndReasoningEffort_ReachChatClient()
+    {
+        fixture.OptionsRecorder.Reset();
+        var agent = fixture.Invoker.GetAgent(DaprFixture.ReasoningOptionsProbeAgent);
+
+        var response = await fixture.Invoker.RunAgentAsync(agent, message: "probe reasoning options");
+
+        Assert.Equal("reasoning-probe-response", response.Text);
+        var snapshot = Assert.IsType<ChatOptionsSnapshot>(fixture.OptionsRecorder.LastSnapshot);
+        Assert.Equal(ReasoningEffort.High, snapshot.ReasoningEffort);
+        Assert.Equal(0.4f, snapshot.Temperature);
+    }
+
     // ── Options + typed deserialization ──────────────────────────────────────
 
     [Fact]

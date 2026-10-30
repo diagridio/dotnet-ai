@@ -23,4 +23,10 @@ public static class DaprSessionConstants
 	/// The key under whcih the session workflow instance ID is stored in the StateBag.
 	/// </summary>
 	public const string SessionInstanceIdKey = "dapr.session.instanceId";
+
+	/// <summary>
+	/// The key under which a stored conversation id is kept in the StateBag. Runs with such a session continue
+	/// that conversation; see <c>AttachConversation</c>.
+	/// </summary>
+	public const string ConversationIdKey = "dapr.conversation.id";
 }

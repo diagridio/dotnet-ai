@@ -5,13 +5,16 @@
 using Dapr.Testcontainers.Common;
 using Dapr.Testcontainers.Common.Options;
 using Dapr.Testcontainers.Harnesses;
+using Dapr.StateManagement;
 using Dapr.Workflow;
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
+using Diagrid.AI.Microsoft.AgentFramework.Conversations;
 using Diagrid.AI.Microsoft.AgentFramework.Hosting;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -96,6 +99,42 @@ public sealed class DaprFixture : IAsyncLifetime
     /// </summary>
     public ChatOptionsRecorder OptionsRecorder { get; } = new();
 
+    /// <summary>
+    /// The Redis state store component the harness writes; it also backs the conversation store.
+    /// </summary>
+    public const string StateStoreName = Dapr.Testcontainers.Constants.DaprComponentNames.StateManagementComponentName;
+
+    /// <summary>
+    /// The key prefix the test app's conversation store uses.
+    /// </summary>
+    public const string ConversationKeyPrefix = "it-conversation:";
+
+    /// <summary>
+    /// The test app's conversation store (<c>WithConversationStore</c>).
+    /// </summary>
+    public IConversationStore ConversationStore { get; private set; } = null!;
+
+    /// <summary>
+    /// The test app's Dapr state client, for checks against the state store itself.
+    /// </summary>
+    public DaprStateManagementClient StateClient { get; private set; } = null!;
+
+    /// <summary>An agent with its own ChatOptions and a WithReasoning effort, recording what reaches its chat client.</summary>
+    public const string ReasoningOptionsProbeAgent = "ReasoningOptionsProbeAgent";
+
+    /// <summary>
+    /// The binary store component name used when <see cref="BinaryStorePayloads"/> is on.
+    /// </summary>
+    public const string BinaryStoreName = "agent-payloads";
+
+    /// <summary>
+    /// When <c>DAPR_BINARY_STORE_PAYLOADS=1</c>, the sidecar gets an in-memory binary store and the
+    /// app offloads <em>every</em> workflow payload to it, so the whole suite runs against payload
+    /// references instead of inline payloads. Needs a 1.19 or newer sidecar.
+    /// </summary>
+    public static bool BinaryStorePayloads { get; } =
+        Environment.GetEnvironmentVariable("DAPR_BINARY_STORE_PAYLOADS") == "1";
+
     // ── IAsyncLifetime ────────────────────────────────────────────────────────
 
     public async ValueTask InitializeAsync()
@@ -113,6 +152,22 @@ public sealed class DaprFixture : IAsyncLifetime
               tracing:
                 samplingRate: "1"
             """);
+
+        if (BinaryStorePayloads)
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(componentsDir, "binarystore.yaml"),
+                $"""
+                apiVersion: dapr.io/v1alpha1
+                kind: Component
+                metadata:
+                  name: {BinaryStoreName}
+                spec:
+                  type: binarystore.in-memory
+                  version: v1
+                  metadata: []
+                """);
+        }
 
         // 1. Shared Dapr infrastructure: Docker network, Placement, Scheduler, and Redis
         //    (actor state store — required for Dapr Workflow execution).
@@ -144,6 +199,8 @@ public sealed class DaprFixture : IAsyncLifetime
         Invoker         = _app.Services.GetRequiredService<IDaprAgentInvoker>();
         WorkflowClient  = _app.Services.GetRequiredService<DaprWorkflowClient>();
         ContextAccessor = _app.Services.GetRequiredService<IDaprAgentContextAccessor>();
+        ConversationStore = _app.Services.GetRequiredService<IConversationStore>();
+        StateClient = _app.Services.GetRequiredService<DaprStateManagementClient>();
         Client  = new HttpClient
         {
             BaseAddress = new Uri($"http://localhost:{_harness.AppPort}"),
@@ -198,7 +255,7 @@ public sealed class DaprFixture : IAsyncLifetime
             opts.SerializerOptions.PropertyNameCaseInsensitive = true;
         });
 
-        builder.Services
+        var agents = builder.Services
             .AddDaprAgents(
                 opt =>
                 {
@@ -209,6 +266,13 @@ public sealed class DaprFixture : IAsyncLifetime
                 {
                     // Custom workflows for WorkflowContextExtensions integration tests.
                     reg.RegisterWorkflow<EchoOrchestrationWorkflow>();
+                    reg.RegisterWorkflow<DetachedEchoOrchestrationWorkflow>();
+                    reg.RegisterWorkflow<ReasoningHistoryOrchestrationWorkflow>();
+                    reg.RegisterWorkflow<ConversationReasoningOrchestrationWorkflow>();
+                    reg.RegisterWorkflow<ConversationRetryOrchestrationWorkflow>();
+                    reg.RegisterWorkflow<DeleteConversationOrchestrationWorkflow>();
+                    reg.RegisterWorkflow<ConcurrentConversationOrchestrationWorkflow>();
+                    reg.RegisterWorkflow<CompactingConversationOrchestrationWorkflow>();
                     reg.RegisterWorkflow<CapitalOrchestrationWorkflow>();
                     reg.RegisterWorkflow<KeyedOrchestrationWorkflow>();
                 })
@@ -225,6 +289,24 @@ public sealed class DaprFixture : IAsyncLifetime
                 .AsAIAgent(instructions: "Farewell agent", name: "FarewellAgent"))
             .WithAgent(_ => new TextResponseMockChatClient("options-probe-response", optionsRecorder)
                 .AsAIAgent(instructions: "Options probe agent", name: "OptionsProbeAgent"))
+            // --- Reasoning options probe: its own ChatOptions plus a WithReasoning effort (below) ---
+            .WithAgent(_ => new TextResponseMockChatClient("reasoning-probe-response", optionsRecorder)
+                .AsAIAgent(new ChatClientAgentOptions
+                {
+                    Name = ReasoningOptionsProbeAgent,
+                    ChatOptions = new ChatOptions { Instructions = "Reasoning options probe agent", Temperature = 0.4f }
+                }))
+            .WithReasoning(ReasoningOptionsProbeAgent, ReasoningEffort.High)
+            // --- Conversation store, in the workflow's own Redis state store ---
+            .WithConversationStore(StateStoreName, options => options.KeyPrefix = ConversationKeyPrefix)
+            // --- Compacting agent: summarizes its conversations once they pass a small trigger ---
+            .WithAgent(_ => new CompactionMockChatClient()
+                .AsAIAgent(instructions: "Compacting agent", name: CompactionMockChatClient.AgentName))
+            .WithConversationCompaction(CompactionMockChatClient.AgentName, options =>
+            {
+                options.TriggerTokens = 50;
+                options.KeepRecentTurns = 1;
+            })
             // --- Keyed agents: different chat-client keys (mirrors KeyedAgentInvokerDemo) ---
             .WithAgent("chat-key-alpha",
                 _ => new TextResponseMockChatClient("Alpha response")
@@ -269,6 +351,17 @@ public sealed class DaprFixture : IAsyncLifetime
                         name: "ToolInvocationAgent",
                         tools: [processInputTool]);
             })
+            // --- Reasoning test agent: returns reasoning and reports which earlier reasoning it received ---
+            .WithAgent(_ => new ReasoningMockChatClient()
+                .AsAIAgent(
+                    instructions: "Reasoning agent",
+                    name: ReasoningMockChatClient.AgentName,
+                    tools: [AIFunctionFactory.Create(() => "noted", ReasoningMockChatClient.ToolName, "Takes a note.")]))
+            .WithAgent(_ => new FailOnceChatClient()
+                .AsAIAgent(
+                    instructions: "Reasoning agent",
+                    name: FailOnceChatClient.AgentName,
+                    tools: [AIFunctionFactory.Create(() => "noted", ReasoningMockChatClient.ToolName, "Takes a note.")]))
             // --- Session history test agent: records the message count seen on each LLM call ---
             .WithAgent(_ => new MessageCountMockChatClient(historyRecorder)
                 .AsAIAgent(instructions: "History tracking agent", name: "HistoryAgent"))
@@ -290,6 +383,12 @@ public sealed class DaprFixture : IAsyncLifetime
                         name: TelemetryBaggageMockChatClient.AgentName,
                         tools: [recordBaggageTool]);
             });
+
+        if (BinaryStorePayloads)
+        {
+            // A null threshold offloads every payload, however small.
+            agents.WithBinaryStorePayloads(BinaryStoreName, options => options.OffloadThreshold = null);
+        }
 
         var app = builder.Build();
 

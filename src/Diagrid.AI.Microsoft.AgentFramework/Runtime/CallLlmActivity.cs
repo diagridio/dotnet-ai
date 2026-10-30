@@ -10,9 +10,9 @@
 // On the Change Date, this software will be available under
 // the Apache License, Version 2.0.
 
-using System.Text.Json;
 using Dapr.Workflow;
-using Microsoft.Agents.AI;
+using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
+using Diagrid.AI.Microsoft.AgentFramework.Conversations;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
@@ -28,14 +28,23 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 /// (<see cref="CallLlmInput.AdditionalInstructions"/>, <see cref="CallLlmInput.AdditionalMessages"/>,
 /// <see cref="CallLlmInput.AdditionalToolNames"/>) so that context providers — e.g. an MAF
 /// <c>AgentSkillsProvider</c> — stay in effect for every LLM call within a single agent run.
+/// When the run continues a stored conversation (<see cref="CallLlmInput.ConversationId"/>), its history is
+/// loaded from the <see cref="IConversationStore"/> on every call, pinned to the prefix the run's first call saw.
 /// </remarks>
 internal sealed partial class CallLlmActivity(
     ChatClientRegistry chatClientRegistry,
     ToolRegistry toolRegistry,
     AgentRegistry agentRegistry,
     IServiceProvider serviceProvider,
-    ILogger<CallLlmActivity> logger) : WorkflowActivity<CallLlmInput, CallLlmOutput>
+    ILogger<CallLlmActivity> logger,
+    IEnumerable<LlmTimeoutRegistration>? llmTimeouts = null,
+    IEnumerable<ReasoningEffortRegistration>? reasoningEfforts = null,
+    IEnumerable<ReasoningReplayRegistration>? reasoningReplays = null,
+    IConversationStore? conversationStore = null,
+    IEnumerable<ContextWindowRegistration>? contextWindows = null,
+    IEnumerable<ConversationCompactionRegistration>? compactions = null) : WorkflowActivity<CallLlmInput, CallLlmOutput>
 {
+
     /// <inheritdoc />
     public override async Task<CallLlmOutput> RunAsync(WorkflowActivityContext context, CallLlmInput input)
     {
@@ -45,85 +54,126 @@ internal sealed partial class CallLlmActivity(
             AgentTelemetryBaggage.LlmOperation,
             input.TelemetryBaggage);
 
-        var config = chatClientRegistry.Get(input.AgentName);
-        if (config is null)
+        var config = AgentChatConfigLookup.Find(chatClientRegistry, agentRegistry, serviceProvider, input.AgentName, input.ChatClientKey)
+            ?? throw new InvalidOperationException(
+                $"Agent '{input.AgentName}' did not register a chat client configuration. " +
+                "Ensure the agent is a ChatClientAgent created via AsAIAgent() or registered " +
+                "with explicit instructions and tools via the DaprAgentsBuilderExtensions overloads.");
+
+        // Stored history goes where PriorMessages would: before the run's own messages.
+        var history = await LoadHistoryAsync(input).ConfigureAwait(false);
+        var runMessages = input.Messages;
+        var runMessagesStart = input.RunMessagesStart ?? 0;
+        if (history is { Entries.Count: > 0 })
         {
-            // Trigger lazy agent resolution — this runs the factory which
-            // populates ChatClientRegistry as a side effect for ChatClientAgent types.
-            agentRegistry.Get(input.AgentName, input.ChatClientKey, serviceProvider);
-            config = chatClientRegistry.Get(input.AgentName)
-                ?? throw new InvalidOperationException(
-                    $"Agent '{input.AgentName}' did not register a chat client configuration. " +
-                    "Ensure the agent is a ChatClientAgent created via AsAIAgent() or registered " +
-                    "with explicit instructions and tools via the DaprAgentsBuilderExtensions overloads.");
+            runMessages = [.. history.Entries.Select(e => e.Message), .. input.Messages];
+            runMessagesStart += history.Entries.Count;
         }
 
-        LogLlmCallInfo(input.AgentName, input.Messages.Count);
+        LogLlmCallInfo(input.AgentName, runMessages.Count);
+
+        var timeout = LlmTimeoutRegistration.Resolve(llmTimeouts ?? [], input.AgentName);
+        using var timeoutCts = LlmTimeoutRegistration.StartTimeout(timeout);
 
         try
         {
-            var messages = BuildChatMessages(config.Instructions, input.AdditionalInstructions, input.AdditionalMessages, input.Messages);
+            var reasoningSource = WorkflowChatMessageConverter.GetReasoningSource(input.AgentName, input.ChatClientKey);
+            var replay = ReasoningReplayRegistration.Resolve(reasoningReplays ?? [], input.AgentName);
+            var layout = LlmRequestBuilder.BuildChatMessages(config.Instructions, input.AdditionalInstructions, input.AdditionalMessages,
+                runMessages, reasoningSource, replay, runMessagesStart,
+                historyStartsWithSummary: history is { Entries: [{ SummaryOf: not null }, ..] });
+            var messages = FitContextWindow(input.AgentName, layout);
             var additionalTools = ResolveAdditionalTools(input.AgentName, input.AdditionalToolNames);
-            var options = BuildChatOptions(config.Tools, additionalTools, input.Options);
+            var reasoning = ReasoningEffortRegistration.Resolve(reasoningEfforts ?? [], input.AgentName, config.BaseOptions?.Reasoning);
+            WarnIfEffortIgnored(input.AgentName, config.ChatClient, reasoning);
+            var options = LlmRequestBuilder.BuildChatOptions(config.BaseOptions, config.Tools, additionalTools, input.Options, reasoning,
+                isFollowUpCall: input.Iteration > 0);
 
-            var response = await config.ChatClient.GetResponseAsync(messages, options)
+            var response = await config.ChatClient.GetResponseAsync(messages, options, timeoutCts.Token)
                 .ConfigureAwait(false);
 
-            return ParseResponse(response);
+            return LlmRequestBuilder.ParseResponse(response, reasoningSource) with
+            {
+                ReasoningReplay = replay,
+                HistorySequence = history?.NextSequence,
+                HistoryIncarnation = history?.Incarnation,
+                CompactionDue = IsCompactionDue(input.AgentName, history) ? true : null
+            };
         }
-        catch (Exception ex)
+        // A cancelled gRPC call surfaces as RpcException(Cancelled), not OperationCanceledException,
+        // so the token's own state is what tells a timeout apart from any other failure.
+        catch (Exception ex) when (timeoutCts.IsCancellationRequested)
+        {
+            LogLlmCallTimeout(input.AgentName, timeout);
+            throw new TimeoutException(
+                $"The LLM call for agent '{input.AgentName}' did not complete within {timeout}. " +
+                "Raise it with WithLlmTimeout(...) on the agents builder.", ex);
+        }
+        // Already logged where it is thrown.
+        catch (Exception ex) when (ex is not ContextWindowExceededException)
         {
             LogLlmCallError(input.AgentName, ex.Message);
             throw;
         }
     }
 
-    private static List<ChatMessage> BuildChatMessages(
-        string? instructions,
-        string? additionalInstructions,
-        List<WorkflowChatMessage>? additionalMessages,
-        List<WorkflowChatMessage> messages)
+    /// <summary>
+    /// Loads the run's stored conversation history, or returns <see langword="null"/> when the run has none.
+    /// Reasoning in it is sent back only to the agent and chat client that produced it, through each block's
+    /// source, as for <see cref="CallLlmInput.Messages"/>.
+    /// </summary>
+    private async Task<ConversationSnapshot?> LoadHistoryAsync(CallLlmInput input)
     {
-        var chatMessages = new List<ChatMessage>();
-
-        var combinedInstructions = CombineInstructions(instructions, additionalInstructions);
-        if (!string.IsNullOrWhiteSpace(combinedInstructions))
+        if (input.ConversationId is null)
         {
-            chatMessages.Add(new ChatMessage(ChatRole.System, combinedInstructions));
+            return null;
         }
 
-        // Ephemeral context contributed by AIContextProviders for this run only (e.g. retrieved
-        // memories). Never persisted to TurnMessages/session history — see ResolveAgentContextActivity.
-        if (additionalMessages is { Count: > 0 })
-        {
-            foreach (var msg in additionalMessages)
-            {
-                chatMessages.Add(WorkflowChatMessageConverter.ToChatMessage(msg));
-            }
-        }
-
-        foreach (var msg in messages)
-        {
-            chatMessages.Add(WorkflowChatMessageConverter.ToChatMessage(msg));
-        }
-
-        return chatMessages;
+        var store = ConversationStoreGuard.Require(conversationStore, input.ConversationId);
+        return await store.LoadAsync(input.ConversationId, input.HistoryUpToSequence, input.HistoryIncarnation)
+            .ConfigureAwait(false);
     }
 
-    private static string? CombineInstructions(string? instructions, string? additionalInstructions)
+    /// <summary>
+    /// The messages to send within the agent's context window (<c>WithContextWindow</c>), or all of them when it has
+    /// none. Only what is sent changes; nothing stored does. See <see cref="ContextWindowFitter"/> for what is left out.
+    /// When what is always sent does not fit, the call fails instead of reaching the model, which would reject the
+    /// request or silently cut it.
+    /// </summary>
+    private List<ChatMessage> FitContextWindow(string agentName, PromptLayout layout)
     {
-        if (string.IsNullOrWhiteSpace(instructions))
+        if (ContextWindowRegistration.Resolve(contextWindows ?? [], agentName) is not { } window)
         {
-            return additionalInstructions;
+            return layout.Messages;
         }
 
-        if (string.IsNullOrWhiteSpace(additionalInstructions))
+        var fit = ContextWindowFitter.Fit(layout, window.MaxContextTokens, window.MaxOutputTokens);
+        if (fit.Messages is null)
         {
-            return instructions;
+            LogContextWindowExceeded(agentName, fit.RequiredTokens, window.MaxContextTokens, window.MaxOutputTokens);
+            throw new ContextWindowExceededException(
+                $"The LLM call for agent '{agentName}' needs about {fit.RequiredTokens} tokens for its instructions, context " +
+                $"and the run's own messages, more than its context window of {window.MaxContextTokens} tokens leaves " +
+                $"after the {window.MaxOutputTokens} kept for the reply, even with every earlier turn left out. Raise " +
+                "it with WithContextWindow(...) if the model allows more, or shorten what the run's tools return.");
         }
 
-        return $"{instructions}\n\n{additionalInstructions}";
+        if (fit.Dropped > 0)
+        {
+            LogContextWindowApplied(agentName, layout.Messages.Count, fit.Messages.Count);
+        }
+
+        return fit.Messages;
     }
+
+    /// <summary>
+    /// Whether the run's stored history has grown past the agent's compaction trigger. Recorded in the output, so
+    /// the workflow schedules the compaction the same way on every replay.
+    /// </summary>
+    private bool IsCompactionDue(string agentName, ConversationSnapshot? history) =>
+        history is { Entries.Count: > 0 }
+        && ConversationCompactionRegistration.Resolve(compactions ?? [], agentName) is { } compaction
+        && compaction.Options.IsDue(TokenEstimate.Of(history.Entries.Select(e => e.Message)));
 
     /// <summary>
     /// Resolves tool names contributed by <see cref="ResolveAgentContextActivity"/> (e.g. a skills
@@ -152,75 +202,20 @@ internal sealed partial class CallLlmActivity(
         return resolved;
     }
 
-    private static ChatOptions? BuildChatOptions(
-        IList<AITool>? tools,
-        IReadOnlyList<AITool>? additionalTools,
-        AgentRunOptions? agentRunOptions)
+    /// <summary>
+    /// Warns, once per agent, when the agent asks for a reasoning effort its chat client cannot send:
+    /// Dapr Conversation (<c>DaprChatClient</c>) has no field for it today.
+    /// </summary>
+    private void WarnIfEffortIgnored(string agentName, IChatClient chatClient, ReasoningOptions? reasoning)
     {
-        var combinedTools = CombineTools(tools, additionalTools);
-        if (combinedTools is null && agentRunOptions is null)
+        if (reasoning?.Effort is null
+            || !Hosting.DaprAgentsBuilder.IsDaprChatClient(chatClient)
+            || !chatClientRegistry.WarnedIgnoredReasoningEffort.TryAdd(agentName, true))
         {
-            return null;
+            return;
         }
 
-#pragma warning disable MEAI001
-        return new ChatOptions
-        {
-            AllowBackgroundResponses = agentRunOptions?.AllowBackgroundResponses,
-            AdditionalProperties = agentRunOptions?.AdditionalProperties,
-            ContinuationToken = agentRunOptions?.ContinuationToken,
-            ResponseFormat = agentRunOptions?.ResponseFormat,
-            Tools = combinedTools
-        };
-#pragma warning restore MEAI001
-    }
-
-    private static List<AITool>? CombineTools(IList<AITool>? tools, IReadOnlyList<AITool>? additionalTools)
-    {
-        if (tools is not { Count: > 0 } && additionalTools is not { Count: > 0 })
-        {
-            return null;
-        }
-
-        var combined = new List<AITool>(
-            (tools?.Count ?? 0) + (additionalTools?.Count ?? 0));
-
-        if (tools is { Count: > 0 })
-        {
-            combined.AddRange(tools);
-        }
-
-        if (additionalTools is { Count: > 0 })
-        {
-            combined.AddRange(additionalTools);
-        }
-
-        return combined;
-    }
-
-    private static CallLlmOutput ParseResponse(ChatResponse response)
-    {
-        var responseMessage = response.Messages[^1];
-        var functionCalls = responseMessage.Contents.OfType<FunctionCallContent>().ToList();
-        var text = responseMessage.Text;
-
-        var isFinal = functionCalls.Count == 0;
-
-        return new CallLlmOutput
-        {
-            IsFinal = isFinal,
-            Text = text,
-            FunctionCalls = isFinal
-                ? null
-                : functionCalls.Select(fc => new WorkflowFunctionCall
-                {
-                    CallId = fc.CallId ?? Guid.NewGuid().ToString("N"),
-                    Name = fc.Name,
-                    ArgumentsJson = fc.Arguments is { Count: > 0 }
-                        ? JsonSerializer.Serialize(fc.Arguments)
-                        : "{}"
-                }).ToList()
-        };
+        LogReasoningEffortIgnored(agentName);
     }
 
     [LoggerMessage(LogLevel.Information, "Calling LLM for agent '{AgentName}' with {MessageCount} messages")]
@@ -228,4 +223,16 @@ internal sealed partial class CallLlmActivity(
 
     [LoggerMessage(LogLevel.Error, "LLM call failed for agent '{AgentName}': {ErrorMessage}")]
     private partial void LogLlmCallError(string agentName, string errorMessage);
+
+    [LoggerMessage(LogLevel.Warning, "Agent '{AgentName}' has a reasoning effort, but its chat client is DaprChatClient, which does not send it: the Dapr Conversation API has no field for it")]
+    private partial void LogReasoningEffortIgnored(string agentName);
+
+    [LoggerMessage(LogLevel.Information, "Fitted agent '{AgentName}' messages to its context window: {Before} messages became {After}")]
+    private partial void LogContextWindowApplied(string agentName, int before, int after);
+
+    [LoggerMessage(LogLevel.Error, "LLM call for agent '{AgentName}' needs about {Tokens} tokens without any earlier turn, more than its context window of {ContextTokens} less {OutputTokens} for the reply")]
+    private partial void LogContextWindowExceeded(string agentName, long tokens, int contextTokens, int outputTokens);
+
+    [LoggerMessage(LogLevel.Error, "LLM call for agent '{AgentName}' timed out after {Timeout}")]
+    private partial void LogLlmCallTimeout(string agentName, TimeSpan timeout);
 }

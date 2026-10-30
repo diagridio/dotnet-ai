@@ -12,9 +12,6 @@ The following shows the simple dependency injection registration of MAF agents:
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
 
-// Register Dapr conversation client
-builder.Services.AddDaprConversationClient();
-
 // Register agents to run within 
 builder.Services.AddDaprAgents()
     .WithAgent(
@@ -40,7 +37,6 @@ public partial class AgentInvokerJsonContext : JsonSerializerContext;
 
 // Program startup
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddDaprConversationClient();
 builder.Services.AddDaprAgents(serializationOptions => 
 {
     serializationOptions.AddContext(() => AgentInvokerJsonContext.Default);
@@ -66,7 +62,6 @@ public sealed record StructuredAnswer(string Answer, double Confidence);
 public partial class AgentInvokerJsonContext : JsonSerializerContext;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddDaprConversationClient();
 builder.Services.AddDaprAgents(serializationOptions => 
 {
     serializationOptions.AddContext(() => AgentInvokerJsonContext.Default); // Necessary to deserialize the workflow results to strongly typed values
@@ -115,6 +110,358 @@ public sealed partial class SampleWorkflow : Workflow<string, string>
     }
 }
 ```
+
+### Detached agent runs
+`StartAgentRunDetachedAsync` starts an agent run from a workflow without waiting for it, and
+returns the run's instance ID. The run is independent of the calling workflow: a failed run does
+not fail the caller, and terminating the caller does not terminate the run. Use it for
+fire-and-forget work such as notifications or follow-ups.
+
+```csharp
+public sealed class OrderWorkflow : Workflow<Order, string>
+{
+    public override async Task<string> RunAsync(WorkflowContext context, Order order)
+    {
+        // ... the order work the caller waits for ...
+        var runId = await context.StartAgentRunDetachedAsync(
+            context.GetAgent("NotifierAgent"),
+            message: $"Tell the customer order {order.Id} has shipped.");
+        return runId;
+    }
+}
+```
+
+The run's `AgentRunResult` is its workflow output, readable through `DaprWorkflowClient` with
+the returned ID. Detached runs need a **Dapr 1.19 or newer sidecar**; an older one retries the
+unknown action indefinitely, so the calling workflow stalls.
+
+## Large payloads in a binary store
+Every agent turn carries the whole conversation between activities, and each of those payloads is
+written to the workflow history. With Dapr 1.19, payloads above a threshold (64 KiB by default) can
+live in a binary store instead, with only a reference in the history. The SDK uploads and resolves
+them for you, so your workflows and agents do not change:
+
+```csharp
+builder.Services.AddDaprAgents()
+    .WithAgent(/* ... */)
+    .WithBinaryStorePayloads("agent-payloads", options =>
+    {
+        options.OffloadThreshold = 128 * 1024; // optional; 64 KiB by default
+    });
+```
+
+`agent-payloads` is a Dapr binary store component, for example:
+
+```yaml
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: agent-payloads
+spec:
+  type: binarystore.aws.s3   # or azure.blobstorage, gcp.bucket, oci.objectstorage; in-memory for local tests
+  version: v1
+  metadata: [] # store-specific settings
+```
+
+> This needs a **Dapr 1.19 or newer sidecar**, and the store must outlive the workflows that reference
+> it. `binarystore.in-memory` loses its payloads when the sidecar restarts, after which a replaying
+> workflow cannot resolve them, so use it only for local testing. Register `WithBinaryStorePayloads`
+> in every app that hosts or schedules these workflows.
+
+## Conversation store
+`WithConversationStore` keeps conversation history, including the model's reasoning, in a Dapr state
+store, outside the workflow payloads:
+
+```csharp
+builder.Services.AddDaprAgents()
+    .WithAgent(/* ... */)
+    .WithConversationStore("statestore", options =>
+    {
+        options.TimeToLive = TimeSpan.FromDays(14); // optional, recommended
+    });
+```
+
+It registers `IConversationStore`, which loads a conversation's history and appends one run's
+messages to it as a turn (the agent runs below use it for you):
+
+- **A turn is stored all at once or not at all.** Its messages are written first, then a small
+  manifest is committed with an ETag check, so a reader never sees half a turn.
+- **Appending the same turn id again changes nothing**, and returns `AlreadyAppended`. Retrying an
+  append after a timeout is therefore safe.
+- **Concurrent appends to one conversation are ordered by commit.** A turn produced without
+  seeing an earlier commit is still stored, and its result reports `BaseMoved`.
+- **`LoadAsync(id, upToSequence, incarnation)` returns a fixed prefix** that later appends do not
+  change. It throws `ConversationNotFoundException` if that prefix was deleted or expired, rather than
+  returning less, or another conversation created since under the same id.
+- **`DeleteAsync` leaves a small tombstone** at the conversation's key, so an append still in flight
+  cannot bring back history that was deleted. An append to the same id after that starts a new
+  conversation.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `KeyPrefix` | `agent-conversation:` | Prefix of every key, after the component's own key prefix (the app id by default) |
+| `TimeToLive` | none | A conversation expires this long after it was last written. A read after half of it renews it, but a single pause longer than the TTL still loses the history, so size it for the longest pause |
+| `MaxChunkBytes` | 256 KiB | Size of each stored document of messages; keep it below the store's value limit |
+| `TurnDedupeWindow` | 128 | How many recent turn ids are remembered for idempotent appends |
+| `MaxCommitAttempts` | 10 | Commit attempts under contention before `ConversationStoreException` |
+
+The component must support ETags, and TTL if you set one; Redis, PostgreSQL and Cosmos DB, for
+example, support both. Keys are prefixed, so the workflow `statestore` works. Set the expiry with
+`TimeToLive`, not with `ttlInSeconds` on the component: a component-wide TTL would also expire stored
+messages that a conversation still references.
+
+> An append whose outcome cannot be confirmed (a lost reply) can leave unreferenced documents
+> behind. They are deleted once they provably cannot become part of the conversation; otherwise the
+> TTL removes them, so setting one is recommended.
+
+### Running agents against a stored conversation
+Inside a workflow, `RunAgentInConversationAsync` runs the agent on everything already committed to the
+conversation, its own earlier reasoning included, and appends the run as one turn if it succeeds:
+
+```csharp
+var planner = context.GetAgent("Planner");
+var conversationId = $"{context.InstanceId}/planning"; // deterministic: never Guid.NewGuid() in a workflow
+
+var first = await context.RunAgentInConversationAsync(planner, conversationId, "Draft a plan.");
+var second = await context.RunAgentInConversationAsync(planner, conversationId, "Now shorten it.");
+
+await context.DeleteConversationAsync(conversationId); // or rely on TimeToLive
+```
+
+Outside a workflow, attach a session to the conversation and run agents through the invoker:
+
+```csharp
+var session = invoker.AttachConversation("customer-42");
+await invoker.RunAgentAsync(agent, "Hi, I need help with my order.", session);
+await invoker.RunAgentAsync(agent, "It arrived damaged.", session); // sees the first turn
+```
+
+Session workflows can keep their conversation in the store too, so no growing log is sent with every
+turn. `CreateStoredSessionAsync` creates one:
+
+```csharp
+var session = await invoker.CreateStoredSessionAsync(workflowClient, new DaprSessionOptions { MaxTurns = 50 });
+
+// Keep both ids to reattach later: AttachSession(instanceId, conversationId).
+var instanceId = session.GetSessionInstanceId();
+var conversationId = session.GetConversationId();
+
+// After that session reached MaxTurns, continue the same conversation in a new one:
+var next = await invoker.CreateStoredSessionAsync(workflowClient,
+    new DaprSessionOptions { ConversationId = conversationId });
+```
+
+- **The history does not travel in workflow payloads.** Each LLM call loads it from the store, pinned to
+  what the run's first call saw, so every call of a run sees the same history.
+- **A failed run appends nothing**, so retrying it with the same conversation id is safe.
+- **A run that hits its iteration limit appends its messages too**, ending with the tool results, as
+  `TurnMessages` returns them.
+- **Reasoning follows `WithReasoningReplay`.** It is stored and sent back only to the agent and chat
+  client that produced it, and not stored at all with `WithinRun` or `Off`.
+- A run takes its history from a conversation or from `RunAgentWithHistoryAsync`'s prior messages, not
+  both. Runs without a conversation id work exactly as before.
+
+### Context window and compaction
+A long conversation eventually outgrows the model's context window. Two settings handle it:
+
+```csharp
+builder.Services.AddDaprAgents()
+    .WithAgent(/* ... */)
+    .WithConversationStore("statestore")
+    // What each LLM call sends is fitted to the model: 128k window, 8k kept for the reply.
+    .WithContextWindow("Planner", maxContextTokens: 128_000, maxOutputTokens: 8_000)
+    // Older turns are summarized once the loaded history passes 60k tokens; the last 4 stay word for word.
+    .WithConversationCompaction("Planner", options =>
+    {
+        options.TriggerTokens = 60_000;
+        options.KeepRecentTurns = 4;
+    });
+```
+
+- **`WithContextWindow`** changes only what one LLM call sends; nothing stored changes.
+  - When what would be sent is larger than the window less the room kept for the reply, it leaves out
+    earlier turns, **whole and oldest first**, until it fits. A turn starts at a user message, so the
+    history sent never opens with an assistant message or a tool result, and a tool call always travels
+    with its results. A stored summary counts as a turn.
+  - The instructions, the context providers' messages, system messages in the history other than a
+    stored summary (a persona you pass in, for example) and **the run's own messages are always sent**:
+    dropping them would lose the task, its context or the reasoning a tool loop needs. When those alone
+    do not fit, the LLM call fails, and with it the run, with an error saying the context window was
+    exceeded, instead of reaching a model that would reject the request or silently cut it.
+  - It works with any history, stored or passed in. Tokens are estimated as characters / 4 over the
+    messages as they are sent, so reasoning that is not sent back does not count.
+- **`WithConversationCompaction`** keeps a stored conversation's meaning instead of dropping it:
+  - **When it runs:** after a run whose loaded history was past `TriggerTokens`, right after the run's
+    turn is stored and before the run returns, so that run's response waits for the summary call.
+  - **What it summarizes:** the oldest turns that fit `MaxSummaryInputTokens` (by default
+    `TriggerTokens`), together with the earlier summary. It keeps up to `KeepRecentTurns` recent turns
+    word for word, fewer if they add up to more than half the trigger, and always the latest. Turns that
+    do not fit are summarized by later runs. It uses the agent's own chat client and options, or
+    `options.ChatClient`.
+  - **Where the summary goes:** it is appended to the conversation, and later runs load it in place of
+    those turns. The original messages stay stored (`LoadEntriesAsync` reads them all), and a run already
+    in progress keeps the history it started with.
+  - **Cost:** the summary is computed once and stored, not on every call.
+  - **On failure:** compaction is best effort. If the summary call fails, the run still succeeds and the
+    next run tries again.
+
+Set both, with `TriggerTokens` well below the window: compaction keeps the conversation short, and the
+window is the safety net for a single run that grows too large.
+
+## Model reasoning
+When the chat client returns the model's reasoning as `TextReasoningContent` (reasoning models
+such as OpenAI's Responses API, Anthropic extended thinking, or DeepSeek-style
+`reasoning_content`), the agent keeps it:
+
+- The reasoning stays on the assistant message it came with and is sent back to the model on
+  the next LLM call of the run. Providers such as Anthropic require the reasoning, and its
+  signature (`ProtectedData`), that preceded a tool call to accompany the tool result.
+- `AgentRunResult.TurnMessages` carries it (`WorkflowChatMessage.Reasoning`), so passing those
+  messages back as history continues from the earlier reasoning instead of starting from zero:
+
+```csharp
+var first = await context.RunAgentWithHistoryAsync(agent, "Plan the migration.");
+var second = await context.RunAgentWithHistoryAsync(agent, "Now estimate it.", first.TurnMessages);
+```
+
+- The response of a run started from a workflow or with `RunAsync` starts with the final
+  reasoning, followed by the text. `AgentResponse.Text` is unchanged, because it concatenates only
+  text content. A session turn returns the text only, but its reasoning stays in the session
+  history and is sent back on later turns.
+
+How the reasoning moves through a run, as an IDesign call chain:
+
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "lineColor": "#000000", "textColor": "#000000", "primaryTextColor": "#000000", "edgeLabelBackground": "#ffffff"}}}%%
+%% Model reasoning in an agent run
+flowchart TD
+    subgraph canvas [" "]
+        CallerWorkflow["Caller<br/>Workflow"]:::client
+        AgentRunWorkflow["Agent Run<br/>Workflow"]:::manager
+        CallLLMActivity["Call LLM<br/>Activity"]:::engine
+        ChatClientAccess["Chat Client<br/>Access"]:::access
+        ExecuteToolActivity["Execute Tool<br/>Activity"]:::access
+        LLMProvider[("LLM Provider")]:::resource
+        CallerWorkflow --> AgentRunWorkflow
+        AgentRunWorkflow --> CallLLMActivity
+        AgentRunWorkflow --> ExecuteToolActivity
+        CallLLMActivity --> ChatClientAccess
+        ChatClientAccess --> LLMProvider
+    end
+    classDef client fill:#9BCB3C,stroke:#333,color:#000
+    classDef manager fill:#FFF200,stroke:#333,color:#000
+    classDef engine fill:#F8C33A,stroke:#333,color:#000
+    classDef access fill:#BCBEC0,stroke:#333,color:#000
+    classDef resource fill:#6CCFE0,stroke:#333,color:#000
+    classDef utility fill:#D69CC6,stroke:#333,color:#000
+    linkStyle default stroke:#000,stroke-width:1.5px
+    style canvas fill:#ffffff,stroke:#ffffff
+```
+
+1. The caller workflow runs the agent with the previous turn's `TurnMessages` as history.
+2. The agent run workflow calls the **Call LLM activity** once per loop iteration, with the
+   run's messages so far.
+3. The activity converts the messages for the chat client. It puts back, first in each
+   message, the reasoning whose `Source` is this agent and chat client key, and leaves out the
+   rest.
+4. The **chat client** calls the model, which returns text, tool calls and reasoning.
+5. The activity captures the reasoning, records its `Source`, and returns it with the text and
+   tool calls.
+6. The workflow keeps the reasoning on the assistant message. When the model asked for tools,
+   the **Execute Tool activity** runs each one and the loop goes back to step 2, so the next
+   call sees the reasoning behind its tool calls.
+7. When the model answers, the run returns its `AgentRunResult`: the `Response` starts with the
+   final reasoning, and `TurnMessages` carries every block, ready for the next turn's step 1.
+
+Reasoning goes back only to the agent that produced it (same agent name and chat client key),
+because a provider rejects another provider's signed or encrypted reasoning. History passed to a
+different agent keeps its text, tool calls and results, without the reasoning. Blocks that cannot
+be rebuilt faithfully are returned to the caller but not sent back: blocks with no text, such as
+Anthropic `redacted_thinking`, and OpenAI Responses reasoning items, whose `rs_…` id does not
+survive the workflow (rely on the Responses API's own conversation state for those).
+
+`AIContextProvider`s do not see the reasoning, so they receive the same messages as before.
+Clients that do not return reasoning are unaffected; the Dapr Conversation API does not carry
+it today.
+
+### Reasoning effort
+Ask a reasoning model for an effort level with `WithReasoning`, for every agent or for one. It is
+sent as `ChatOptions.Reasoning` on every LLM call:
+
+```csharp
+builder.Services.AddDaprAgents()
+    .WithAgent(/* ... */)
+    .WithReasoning(ReasoningEffort.Medium)                           // every agent
+    .WithReasoning("Planner", ReasoningEffort.High, ReasoningOutput.Full); // this agent only
+```
+
+An agent created with its own `ChatClientAgentOptions.ChatOptions` now keeps them on every LLM
+call; earlier versions used only their tools. That covers temperature, output limits, response
+format, tool mode, additional properties, reasoning and the rest, with these exceptions:
+
+- Tools, instructions and the conversation id are supplied by the run itself.
+- Background responses and continuation tokens apply only when a run's `AgentRunOptions` set them,
+  because the workflow does not poll a background response.
+- A required tool mode (`ChatToolMode.RequireAny` or `RequireSpecific`) applies to the run's first
+  LLM call only, as with `FunctionInvokingChatClient`; otherwise a model that obeys it would call
+  tools until the run hits its iteration limit.
+
+A run's `AgentRunOptions` override only what they set, so an agent's own response format also
+applies to `RunAgentAndDeserializeAsync<T>` unless the run passes one. With `DaprChatClient`, the
+tool mode is sent as the Conversation API's tool choice and additional properties as its metadata.
+
+The effort and the output are each taken from `WithReasoning(agentName, ...)`, else the agent's
+own `ChatOptions.Reasoning`, else `WithReasoning(...)` for every agent.
+
+Chat clients that do not support reasoning options ignore the effort. `DaprChatClient` is one of
+them, because the Dapr Conversation API has no field for it; an agent that sets an effort on it
+logs a warning once.
+
+### Sending reasoning back
+Sending reasoning back costs input tokens on every call, and keeping it makes the run's messages,
+and the workflow payloads that carry them, larger. `WithReasoningReplay` chooses how much, for
+every agent or for one:
+
+| `ReasoningReplay` | Sent back | Kept in `TurnMessages` |
+|---|---|---|
+| `AcrossTurns` (default) | on the run's later calls, and on later turns given the history | yes |
+| `WithinRun` | only on the later calls of the run that produced it, as a tool loop needs | no |
+| `Off` | never | no |
+
+With `WithinRun` and `Off`, reasoning in the history from earlier turns is also dropped from the
+run's later LLM call inputs. Use `WithinRun`, not `Off`, with providers that require the reasoning
+behind a tool call to accompany the tool result, such as Anthropic extended thinking.
+
+```csharp
+builder.Services.AddDaprAgents()
+    .WithAgent(/* ... */)
+    .WithReasoningReplay("Engineer", ReasoningReplay.WithinRun);
+```
+
+With every setting, the response returned to the caller still starts with the final reasoning.
+
+## LLM call timeouts
+Each LLM call is bounded by a timeout, 100 seconds unless you change it. A slow model, such as one
+running locally, can need more. Set a default for every agent, override it per agent, or pass
+`Timeout.InfiniteTimeSpan` to disable it:
+
+```csharp
+builder.Services.AddDaprAgents()
+    .WithAgent(
+        agentName: "SampleAgent",
+        conversationComponentName: "conversation-ollama",
+        instructions: "You are a helpful assistant.")
+    .WithLlmTimeout(TimeSpan.FromMinutes(3))                  // every agent
+    .WithLlmTimeout("SampleAgent", TimeSpan.FromMinutes(10)); // this agent only
+```
+
+The timeout applies to one LLM call, not to a whole agent run. A call that exceeds it fails its
+activity with a `TimeoutException` naming the agent.
+
+> `AddDaprAgents()` registers the Dapr Conversation client itself, without the 100-second
+> `HttpClient` cap. If you register your own with `AddDaprConversationClient(...)` *before*
+> `AddDaprAgents()`, yours is kept, and its `HttpClient.Timeout` (100 seconds by default) still
+> applies on top of `WithLlmTimeout`, so set it with `UseTimeout(...)` as well.
 
 ## Skills
 Skills are portable packages of instructions, reference material, and scripts that give an agent

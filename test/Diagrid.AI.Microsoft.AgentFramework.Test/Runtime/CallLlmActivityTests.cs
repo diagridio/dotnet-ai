@@ -488,12 +488,128 @@ public sealed class CallLlmActivityTests
         Assert.Equal("c1", output.FunctionCalls![0].CallId);
     }
 
+    // ── LLM call timeout ───────────────────────────────────────────────────
+
+    private static CallLlmActivity BuildActivity(IChatClient client, params LlmTimeoutRegistration[] timeouts)
+    {
+        var sp = new EmptyServiceProvider();
+        var registry = new ChatClientRegistry();
+        registry.Register(AgentName, client, instructions: null, tools: null);
+
+        return new CallLlmActivity(
+            registry, new ToolRegistry(), new AgentRegistry(sp, []), sp,
+            NullLogger<CallLlmActivity>.Instance, timeouts);
+    }
+
+    private static CallLlmInput MakeUserInput() =>
+        new(AgentName, null, [new WorkflowChatMessage { Role = "user", Content = "hello" }]);
+
+    [Fact]
+    public async Task RunAsync_LlmSlowerThanAgentTimeout_ThrowsTimeoutException()
+    {
+        var activity = BuildActivity(
+            new HangingChatClient(),
+            new LlmTimeoutRegistration(AgentName, TimeSpan.FromMilliseconds(50)));
+
+        var ex = await Assert.ThrowsAsync<TimeoutException>(() => activity.RunAsync(MakeContext(), MakeUserInput()));
+
+        Assert.Contains(AgentName, ex.Message);
+        Assert.IsAssignableFrom<OperationCanceledException>(ex.InnerException);
+    }
+
+    [Fact]
+    public async Task RunAsync_ClientFailsWithNonCancellationExceptionOnTimeout_StillThrowsTimeoutException()
+    {
+        // Grpc.Net.Client reports a cancelled call as RpcException(StatusCode.Cancelled).
+        var activity = BuildActivity(
+            new HangingChatClient(onCancel: () => new InvalidOperationException("Status(StatusCode=\"Cancelled\")")),
+            new LlmTimeoutRegistration(null, TimeSpan.FromMilliseconds(50)));
+
+        var ex = await Assert.ThrowsAsync<TimeoutException>(() => activity.RunAsync(MakeContext(), MakeUserInput()));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+    }
+
+    [Fact]
+    public async Task RunAsync_DefaultTimeout_PassesCancellableTokenToClient()
+    {
+        var client = new CapturingChatClient();
+        client.SetNextResponse(finalText: "ok");
+        var activity = BuildActivity(client);
+
+        await activity.RunAsync(MakeContext(), MakeUserInput());
+
+        Assert.True(client.LastCancellationToken.CanBeCanceled);
+        Assert.False(client.LastCancellationToken.IsCancellationRequested);
+    }
+
+    [Fact]
+    public async Task RunAsync_InfiniteTimeout_DoesNotCancel()
+    {
+        var client = new CapturingChatClient();
+        client.SetNextResponse(finalText: "ok");
+        var activity = BuildActivity(client, new LlmTimeoutRegistration(AgentName, Timeout.InfiniteTimeSpan));
+
+        var output = await activity.RunAsync(MakeContext(), MakeUserInput());
+
+        Assert.True(output.IsFinal);
+        Assert.False(client.LastCancellationToken.IsCancellationRequested);
+    }
+
+    [Fact]
+    public async Task RunAsync_ClientFailsBeforeTimeout_PropagatesOriginalException()
+    {
+        var activity = BuildActivity(new HangingChatClient(failImmediately: true));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => activity.RunAsync(MakeContext(), MakeUserInput()));
+    }
+
+    private sealed class HangingChatClient(
+        Func<Exception>? onCancel = null,
+        bool failImmediately = false) : IChatClient
+    {
+        public async Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (failImmediately)
+            {
+                throw new InvalidOperationException("boom");
+            }
+
+            try
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
+            catch (OperationCanceledException) when (onCancel is not null)
+            {
+                throw onCancel();
+            }
+
+            throw new UnreachableException();
+        }
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await Task.CompletedTask;
+            yield break;
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public void Dispose() { }
+    }
+
     // ── Helper: CapturingChatClient ────────────────────────────────────────
 
     internal sealed class CapturingChatClient : IChatClient
     {
         public List<ChatMessage>? LastMessages { get; private set; }
         public ChatOptions? LastOptions { get; private set; }
+        public CancellationToken LastCancellationToken { get; private set; }
 
         private ChatResponse? _nextResponse;
 
@@ -512,6 +628,8 @@ public sealed class CallLlmActivityTests
             }
         }
 
+        public void SetNextResponse(ChatResponse response) => _nextResponse = response;
+
         public Task<ChatResponse> GetResponseAsync(
             IEnumerable<ChatMessage> messages,
             ChatOptions? options = null,
@@ -519,6 +637,7 @@ public sealed class CallLlmActivityTests
         {
             LastMessages = messages.ToList();
             LastOptions = options;
+            LastCancellationToken = cancellationToken;
             return Task.FromResult(_nextResponse
                 ?? new ChatResponse(new ChatMessage(ChatRole.Assistant, string.Empty)));
         }

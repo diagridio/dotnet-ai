@@ -49,4 +49,42 @@ public sealed class SessionWorkflowTests
         Assert.Same(options, captured.Options);
         Assert.Same(telemetryBaggage, captured.TelemetryBaggage);
     }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("conv-1")]
+    public async Task RunAsync_CarriesTheLogOrRunsAgainstTheStoredConversation(string? conversationId)
+    {
+        var captured = new List<DaprAgentInvocation>();
+        var context = new TestWorkflowContext(
+            "session-1",
+            (_, input) =>
+            {
+                var invocation = (DaprAgentInvocation)input!;
+                captured.Add(invocation with { PriorMessages = invocation.PriorMessages?.ToList() });
+                return Task.FromResult<object?>(new AgentRunResult
+                {
+                    Response = new AgentResponse(new ChatMessage(ChatRole.Assistant, "ok")),
+                    TurnMessages = [new WorkflowChatMessage { Role = "user", Content = invocation.Message }, new WorkflowChatMessage { Role = "assistant", Content = "ok" }]
+                });
+            },
+            [
+                (SessionWorkflow.TurnEventName, new SessionTurnRequest { AgentName = "alpha", Message = "one", TurnId = "t1" }),
+                (SessionWorkflow.TurnEventName, new SessionTurnRequest { AgentName = "alpha", Message = "two", TurnId = "t2" }),
+            ]);
+
+        await new SessionWorkflow().RunAsync(context, new SessionWorkflowInput { MaxTurns = 2, ConversationId = conversationId });
+
+        Assert.Equal(2, captured.Count);
+        Assert.All(captured, c => Assert.Equal(conversationId, c.ConversationId));
+        Assert.Null(captured[0].PriorMessages);
+        if (conversationId is null)
+        {
+            Assert.Equal(["one", "ok"], captured[1].PriorMessages!.Select(m => m.Content));
+        }
+        else
+        {
+            Assert.Null(captured[1].PriorMessages);
+        }
+    }
 }

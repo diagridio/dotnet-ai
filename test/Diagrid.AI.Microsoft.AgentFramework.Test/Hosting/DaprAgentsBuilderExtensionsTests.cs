@@ -612,7 +612,7 @@ public sealed class DaprAgentsBuilderExtensionsTests
         var function = AIFunctionFactory.Create(() => "ok", name: "probe");
         var agent = chatClient.AsAIAgent(instructions: "Use tools.", name: "tool-agent", tools: [function]);
 
-        DaprAgentsBuilderExtensions.RegisterAgentComponents(provider, agent, chatClient);
+        AgentComponentRegistrar.RegisterAgentComponents(provider, agent, chatClient);
 
         var config = provider.GetRequiredService<ChatClientRegistry>().Get("tool-agent");
         Assert.NotNull(config);
@@ -631,7 +631,7 @@ public sealed class DaprAgentsBuilderExtensionsTests
         var chatClient = new TestChatClient();
         var agent = new TestAIAgent("");
 
-        DaprAgentsBuilderExtensions.RegisterAgentComponents(provider, agent, chatClient);
+        AgentComponentRegistrar.RegisterAgentComponents(provider, agent, chatClient);
 
         Assert.Null(provider.GetRequiredService<ChatClientRegistry>().Get(""));
     }
@@ -645,7 +645,7 @@ public sealed class DaprAgentsBuilderExtensionsTests
         var rawClient = new DaprChatClient();
         var agent = rawClient.AsAIAgent(instructions: "Use Dapr.", name: "dapr-agent");
 
-        DaprAgentsBuilderExtensions.RegisterAgentComponents(provider, agent, rawClient);
+        AgentComponentRegistrar.RegisterAgentComponents(provider, agent, rawClient);
 
         var config = provider.GetRequiredService<ChatClientRegistry>().Get("dapr-agent");
         Assert.NotNull(config);
@@ -756,7 +756,7 @@ public sealed class DaprAgentsBuilderExtensionsTests
             AIContextProviders = [contextProvider]
         });
 
-        DaprAgentsBuilderExtensions.RegisterAgentComponents(provider, agent, chatClient);
+        AgentComponentRegistrar.RegisterAgentComponents(provider, agent, chatClient);
 
         var config = provider.GetRequiredService<ChatClientRegistry>().Get("context-agent");
         Assert.NotNull(config);

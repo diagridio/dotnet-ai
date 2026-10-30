@@ -120,4 +120,31 @@ public sealed class DaprSessionExtensionsTests
 
         Assert.Equal(id, retrieved);
     }
+
+    // =========================================================================
+    // CreateStoredSessionAsync / AttachSession with a conversation
+    // =========================================================================
+
+    [Fact]
+    public async Task CreateStoredSessionAsync_InvalidConversationId_Throws()
+    {
+        var invoker = Mock.Of<IDaprAgentInvoker>();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => invoker.CreateStoredSessionAsync(
+            null!, new DaprSessionOptions { ConversationId = " " }, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentException>(() => invoker.CreateStoredSessionAsync(
+            null!, new DaprSessionOptions { ConversationId = new string('a', 257) }, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => invoker.CreateStoredSessionAsync(
+            null!, cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void AttachSession_WithAConversation_KeepsBothIds()
+    {
+        var session = Mock.Of<IDaprAgentInvoker>().AttachSession("session-1", "conv-1");
+
+        Assert.Equal("session-1", session.GetSessionInstanceId());
+        Assert.Equal("conv-1", session.GetConversationId());
+        Assert.Throws<ArgumentException>(() => Mock.Of<IDaprAgentInvoker>().AttachSession("session-1", ""));
+    }
 }
