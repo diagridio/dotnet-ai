@@ -73,6 +73,15 @@ internal sealed class TestWorkflowContext : WorkflowContext
         return CallActivityAsyncCore<object?>(workflowName, input);
     }
 
+    public List<(string WorkflowName, string? InstanceId, object? Input)> DetachedWorkflows { get; } = [];
+
+    public override Task<string> ScheduleNewDetachedWorkflowAsync(string workflowName, string? instanceId = null,
+        object? input = null, DateTimeOffset? startTime = null)
+    {
+        DetachedWorkflows.Add((workflowName, instanceId, input));
+        return Task.FromResult(instanceId ?? $"{InstanceId}-detached-{DetachedWorkflows.Count}");
+    }
+
     public override void SendEvent(string instanceId, string eventName, object? eventData = null)
     {
     }

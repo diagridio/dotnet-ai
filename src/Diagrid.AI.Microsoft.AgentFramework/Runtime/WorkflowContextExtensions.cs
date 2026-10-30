@@ -127,6 +127,54 @@ public static partial class WorkflowContextExtensions
             });
 
     /// <summary>
+    /// Starts an agent run as a detached workflow and returns its instance ID without waiting for it.
+    /// Each LLM call and each tool call within the agent run is a separate activity, as with
+    /// <see cref="RunAgentAsync"/>.
+    /// </summary>
+    /// <param name="context">The current workflow context.</param>
+    /// <param name="agent">The agent reference.</param>
+    /// <param name="message">Optional user/system message.</param>
+    /// <param name="options">Optional agent run options.</param>
+    /// <param name="instanceId">The instance ID for the agent run, or <see langword="null"/> to have a deterministic one generated.</param>
+    /// <param name="telemetryBaggage">Optional custom baggage values to apply inside workflow activities.</param>
+    /// <returns>The instance ID of the scheduled agent run.</returns>
+    /// <remarks>
+    /// <para>
+    /// Unlike a child workflow, the agent run is independent of the current workflow: the current
+    /// workflow does not wait for it, a failed run does not fail it, and terminating it does not
+    /// terminate the run. Use this for fire-and-forget work such as notifications or follow-ups that
+    /// should not hold the caller open. The run's <see cref="AgentRunResult"/> is its workflow output,
+    /// readable through <c>DaprWorkflowClient</c> with the returned instance ID.
+    /// </para>
+    /// <para>
+    /// Requires a Dapr 1.19 or newer sidecar. An older sidecar rejects the action as unknown, treats
+    /// that as recoverable and retries it indefinitely, so the calling workflow stalls rather than fails.
+    /// </para>
+    /// </remarks>
+    public static Task<string> StartAgentRunDetachedAsync(
+        this WorkflowContext context,
+        IDaprAIAgent agent,
+        string? message = null,
+        AgentRunOptions? options = null,
+        string? instanceId = null,
+        IReadOnlyDictionary<string, string?>? telemetryBaggage = null)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(agent);
+
+        // No session parameter: a session's turns are ordered by its SessionWorkflow, and a run nobody
+        // awaits could not keep that order.
+        return context.ScheduleNewDetachedWorkflowAsync(
+            nameof(AgentRunWorkflow),
+            instanceId,
+            new DaprAgentInvocation(agent.Name, message, Session: null, Options: options)
+            {
+                ChatClientKey = GetChatClientKey(agent),
+                TelemetryBaggage = AgentTelemetryBaggage.Copy(telemetryBaggage)
+            });
+    }
+
+    /// <summary>
     /// Invokes an agent inside an activity and deserializes the response <see cref="AgentResponse.Text"/> to
     /// <typeparamref name="T"/> using a source-generated <see cref="JsonSerializerContext"/>.
     /// </summary>

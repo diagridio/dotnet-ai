@@ -262,9 +262,8 @@ public sealed class DaprAgentsBuilderTests
 
     private static DaprAgentsBuilder BuildDaprBuilder()
     {
-        var services = new ServiceCollection();
-        services.AddDaprAgents();
-        return new DaprAgentsBuilder(services);
+        // The real builder AddDaprAgents returns, with its Dapr Workflow builder.
+        return (DaprAgentsBuilder)new ServiceCollection().AddDaprAgents();
     }
 
     private static IReadOnlyList<AgentFactoryRegistration> FindRegistrations(IServiceCollection services) =>

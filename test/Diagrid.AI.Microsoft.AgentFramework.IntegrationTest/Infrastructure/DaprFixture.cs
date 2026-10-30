@@ -96,6 +96,19 @@ public sealed class DaprFixture : IAsyncLifetime
     /// </summary>
     public ChatOptionsRecorder OptionsRecorder { get; } = new();
 
+    /// <summary>
+    /// The binary store component name used when <see cref="BinaryStorePayloads"/> is on.
+    /// </summary>
+    public const string BinaryStoreName = "agent-payloads";
+
+    /// <summary>
+    /// When <c>DAPR_BINARY_STORE_PAYLOADS=1</c>, the sidecar gets an in-memory binary store and the
+    /// app offloads <em>every</em> workflow payload to it, so the whole suite runs against payload
+    /// references instead of inline payloads. Needs a 1.19 or newer sidecar.
+    /// </summary>
+    public static bool BinaryStorePayloads { get; } =
+        Environment.GetEnvironmentVariable("DAPR_BINARY_STORE_PAYLOADS") == "1";
+
     // ── IAsyncLifetime ────────────────────────────────────────────────────────
 
     public async ValueTask InitializeAsync()
@@ -113,6 +126,22 @@ public sealed class DaprFixture : IAsyncLifetime
               tracing:
                 samplingRate: "1"
             """);
+
+        if (BinaryStorePayloads)
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(componentsDir, "binarystore.yaml"),
+                $"""
+                apiVersion: dapr.io/v1alpha1
+                kind: Component
+                metadata:
+                  name: {BinaryStoreName}
+                spec:
+                  type: binarystore.in-memory
+                  version: v1
+                  metadata: []
+                """);
+        }
 
         // 1. Shared Dapr infrastructure: Docker network, Placement, Scheduler, and Redis
         //    (actor state store — required for Dapr Workflow execution).
@@ -198,7 +227,7 @@ public sealed class DaprFixture : IAsyncLifetime
             opts.SerializerOptions.PropertyNameCaseInsensitive = true;
         });
 
-        builder.Services
+        var agents = builder.Services
             .AddDaprAgents(
                 opt =>
                 {
@@ -209,6 +238,7 @@ public sealed class DaprFixture : IAsyncLifetime
                 {
                     // Custom workflows for WorkflowContextExtensions integration tests.
                     reg.RegisterWorkflow<EchoOrchestrationWorkflow>();
+                    reg.RegisterWorkflow<DetachedEchoOrchestrationWorkflow>();
                     reg.RegisterWorkflow<CapitalOrchestrationWorkflow>();
                     reg.RegisterWorkflow<KeyedOrchestrationWorkflow>();
                 })
@@ -290,6 +320,12 @@ public sealed class DaprFixture : IAsyncLifetime
                         name: TelemetryBaggageMockChatClient.AgentName,
                         tools: [recordBaggageTool]);
             });
+
+        if (BinaryStorePayloads)
+        {
+            // A null threshold offloads every payload, however small.
+            agents.WithBinaryStorePayloads(BinaryStoreName, options => options.OffloadThreshold = null);
+        }
 
         var app = builder.Build();
 

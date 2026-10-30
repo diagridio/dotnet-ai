@@ -3,6 +3,7 @@
 // Licensed under the Business Source License 1.1 (BSL 1.1).
 
 using Dapr.Workflow;
+using Diagrid.AI.Microsoft.AgentFramework.Runtime;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.IntegrationTest.Tests;
 
@@ -65,6 +66,26 @@ public sealed class WorkflowContextExtensionsTests(DaprFixture fixture)
             Assert.Equal(WorkflowRuntimeStatus.Completed, s.RuntimeStatus);
             Assert.Equal("Hello from EchoAgent!", s.ReadOutputAs<string>());
         });
+    }
+
+    // ── context.StartAgentRunDetachedAsync ───────────────────────────────────
+
+    [Fact]
+    public async Task StartAgentRunDetachedAsync_ParentCompletesAndRunCompletesIndependently()
+    {
+        var parentId = await fixture.WorkflowClient.ScheduleNewWorkflowAsync(
+            name:  nameof(DetachedEchoOrchestrationWorkflow),
+            input: "detached from workflow");
+
+        var parent = await fixture.WorkflowClient.WaitForWorkflowCompletionAsync(parentId);
+        Assert.Equal(WorkflowRuntimeStatus.Completed, parent.RuntimeStatus);
+        var runId = parent.ReadOutputAs<string>();
+        Assert.False(string.IsNullOrEmpty(runId));
+        Assert.NotEqual(parentId, runId);
+
+        var run = await fixture.WorkflowClient.WaitForWorkflowCompletionAsync(runId!);
+        Assert.Equal(WorkflowRuntimeStatus.Completed, run.RuntimeStatus);
+        Assert.Equal("Hello from EchoAgent!", run.ReadOutputAs<AgentRunResult>()!.Response.Text);
     }
 
     // ── context.RunAgentAndDeserializeAsync<T> ────────────────────────────────

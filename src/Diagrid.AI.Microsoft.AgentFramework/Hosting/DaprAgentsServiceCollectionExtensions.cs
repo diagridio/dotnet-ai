@@ -102,6 +102,6 @@ public static class DaprAgentsServiceCollectionExtensions
             services.AddHostedService<AgentJsonResolverInitializer>();
         }
 
-        return new DaprAgentsBuilder(services);
+        return new DaprAgentsBuilder(services, workflowBuilder);
     }
 }

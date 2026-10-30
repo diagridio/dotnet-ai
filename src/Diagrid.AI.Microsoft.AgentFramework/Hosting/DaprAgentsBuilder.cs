@@ -11,6 +11,7 @@
 // the Apache License, Version 2.0.
 
 using System.Runtime.CompilerServices;
+using Dapr.Workflow;
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
 using Diagrid.AI.Microsoft.AgentFramework.Catalyst;
 using Microsoft.Agents.AI;
@@ -22,9 +23,17 @@ using Microsoft.Extensions.Options;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.Hosting;
 
-internal sealed class DaprAgentsBuilder(IServiceCollection services) : IAgentsBuilder
+internal sealed class DaprAgentsBuilder(
+    IServiceCollection services,
+    WorkflowServiceCollectionExtensions.DaprWorkflowBuilder workflowBuilder) : IAgentsBuilder
 {
     internal IServiceCollection Services { get; } = services;
+
+    /// <summary>
+    /// The Dapr Workflow builder <c>AddDaprAgents</c> created. Its constructor is internal to the Dapr SDK,
+    /// so builder extensions such as <c>WithBinaryStorePayloads</c> can only reach it through here.
+    /// </summary>
+    internal WorkflowServiceCollectionExtensions.DaprWorkflowBuilder WorkflowBuilder { get; } = workflowBuilder;
 
     public IAgentsBuilder WithAgent(Func<IServiceProvider, AIAgent> factory)
     {

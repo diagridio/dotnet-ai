@@ -12,6 +12,7 @@
 
 using System.Diagnostics.CodeAnalysis;
 using Dapr.AI.Microsoft.Extensions;
+using Dapr.Workflow.Payloads;
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
 using Diagrid.AI.Microsoft.AgentFramework.Runtime;
 using Microsoft.Agents.AI;
@@ -143,6 +144,62 @@ public static class DaprAgentsBuilderExtensions
         configureSkills(skillsBuilder);
 
         return builder.WithContextProviders(agentName, skillsBuilder.Build());
+    }
+
+    // =========================================================================
+    // Binary store payloads
+    //
+    // Every agent turn carries the whole conversation across activity boundaries (CallLlmInput,
+    // AgentRunResult, ...), and each of those payloads is stored in the workflow history. Dapr 1.19
+    // can keep large payloads in a binary store and write only a reference into the history; the
+    // SDK uploads and resolves them transparently, so workflows and activities are unchanged.
+    // =========================================================================
+
+    /// <summary>
+    /// Keeps workflow payloads larger than <see cref="BinaryStorePayloadOptions.OffloadThreshold"/>
+    /// (64 KiB by default) in the named Dapr binary store, writing only a reference into the workflow
+    /// history. Long agent conversations are the payloads this is meant for.
+    /// </summary>
+    /// <param name="builder">The agents builder.</param>
+    /// <param name="storeName">The name of the Dapr binary store component.</param>
+    /// <param name="configure">Optional further configuration, such as the threshold or key prefix.</param>
+    /// <returns>The agents builder.</returns>
+    /// <remarks>
+    /// <para>
+    /// Sets <see cref="BinaryStorePayloadOptions.WritePreference"/> to
+    /// <see cref="PayloadWritePreference.PreferReference"/>, because the SDK default
+    /// (<see cref="PayloadWritePreference.Preserve"/>) offloads nothing automatically. <paramref name="configure"/>
+    /// runs afterwards and may change it.
+    /// </para>
+    /// <para>
+    /// Requires a Dapr 1.19 or newer sidecar with a binary store component. Payloads must outlive the
+    /// workflows that reference them, so use a durable store in production: <c>binarystore.in-memory</c>
+    /// loses them when the sidecar restarts, and a workflow that then replays cannot resolve them.
+    /// Register it on every app that hosts or schedules these workflows.
+    /// </para>
+    /// </remarks>
+    public static IAgentsBuilder WithBinaryStorePayloads(
+        this IAgentsBuilder builder,
+        string storeName,
+        Action<BinaryStorePayloadOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(storeName);
+
+        if (builder is not DaprAgentsBuilder daprBuilder)
+        {
+            throw new InvalidOperationException(
+                "WithBinaryStorePayloads requires the agents builder returned by AddDaprAgents().");
+        }
+
+        Dapr.Workflow.BinaryStorePayloadServiceCollectionExtensions.WithBinaryStorePayloads(daprBuilder.WorkflowBuilder, options =>
+        {
+            options.StoreName = storeName;
+            options.WritePreference = PayloadWritePreference.PreferReference;
+            configure?.Invoke(options);
+        });
+
+        return builder;
     }
 
     /// <summary>
