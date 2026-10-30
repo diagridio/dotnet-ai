@@ -34,7 +34,8 @@ internal sealed partial class CallLlmActivity(
     ToolRegistry toolRegistry,
     AgentRegistry agentRegistry,
     IServiceProvider serviceProvider,
-    ILogger<CallLlmActivity> logger) : WorkflowActivity<CallLlmInput, CallLlmOutput>
+    ILogger<CallLlmActivity> logger,
+    IEnumerable<LlmTimeoutRegistration>? llmTimeouts = null) : WorkflowActivity<CallLlmInput, CallLlmOutput>
 {
     /// <inheritdoc />
     public override async Task<CallLlmOutput> RunAsync(WorkflowActivityContext context, CallLlmInput input)
@@ -60,16 +61,32 @@ internal sealed partial class CallLlmActivity(
 
         LogLlmCallInfo(input.AgentName, input.Messages.Count);
 
+        var timeout = LlmTimeoutRegistration.Resolve(llmTimeouts ?? [], input.AgentName);
+        using var timeoutCts = new CancellationTokenSource();
+        if (timeout != Timeout.InfiniteTimeSpan)
+        {
+            timeoutCts.CancelAfter(timeout);
+        }
+
         try
         {
             var messages = BuildChatMessages(config.Instructions, input.AdditionalInstructions, input.AdditionalMessages, input.Messages);
             var additionalTools = ResolveAdditionalTools(input.AgentName, input.AdditionalToolNames);
             var options = BuildChatOptions(config.Tools, additionalTools, input.Options);
 
-            var response = await config.ChatClient.GetResponseAsync(messages, options)
+            var response = await config.ChatClient.GetResponseAsync(messages, options, timeoutCts.Token)
                 .ConfigureAwait(false);
 
             return ParseResponse(response);
+        }
+        // A cancelled gRPC call surfaces as RpcException(Cancelled), not OperationCanceledException,
+        // so the token's own state is what tells a timeout apart from any other failure.
+        catch (Exception ex) when (timeoutCts.IsCancellationRequested)
+        {
+            LogLlmCallTimeout(input.AgentName, timeout);
+            throw new TimeoutException(
+                $"The LLM call for agent '{input.AgentName}' did not complete within {timeout}. " +
+                "Raise it with WithLlmTimeout(...) on the agents builder.", ex);
         }
         catch (Exception ex)
         {
@@ -228,4 +245,7 @@ internal sealed partial class CallLlmActivity(
 
     [LoggerMessage(LogLevel.Error, "LLM call failed for agent '{AgentName}': {ErrorMessage}")]
     private partial void LogLlmCallError(string agentName, string errorMessage);
+
+    [LoggerMessage(LogLevel.Error, "LLM call for agent '{AgentName}' timed out after {Timeout}")]
+    private partial void LogLlmCallTimeout(string agentName, TimeSpan timeout);
 }
