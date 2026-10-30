@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <!-- MAF's Skills API (AgentClassSkill, AgentSkillsProviderBuilder, ...) is marked
+             [Experimental("MAAI001")] upstream. -->
+        <NoWarn>$(NoWarn);MAAI001</NoWarn>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Dapr.Workflow" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\Diagrid.AI.Microsoft.AgentFramework\Diagrid.AI.Microsoft.AgentFramework.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- skill/ is used in place from the project directory (the learning workflow writes new
+             skill versions into it), so it is not copied to bin/. workspace/ is the candle cache. -->
+        <None Remove="workspace\**" />
+        <Content Remove="workspace\**" />
+        <Content Update="skill\**\*.json" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
+    </ItemGroup>
+
+</Project>
