@@ -124,10 +124,21 @@ internal sealed partial class ExecuteToolActivity(
                 ResultJson = resultJson
             };
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             LogToolError(input.AgentName, input.FunctionName, ex.Message);
-            throw;
+
+            // Like a denial, a failing tool is reported back as a tool result so the LLM can
+            // correct itself — e.g. retry a skill tool it called without a required argument —
+            // matching FunctionInvokingChatClient in non-durable MAF. Rethrowing would fail the
+            // activity and with it the whole agent run.
+            return new ExecuteToolOutput
+            {
+                CallId = input.CallId,
+                FunctionName = input.FunctionName,
+                ResultJson = JsonSerializer.Serialize(new { error = ex.Message }),
+                Error = ex.Message
+            };
         }
         finally
         {

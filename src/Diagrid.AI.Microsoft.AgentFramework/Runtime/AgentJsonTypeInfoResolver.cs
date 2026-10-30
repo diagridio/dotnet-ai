@@ -10,7 +10,6 @@
 // On the Change Date, this software will be available under
 // the Apache License, Version 2.0.
 
-using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using Diagrid.AI.Microsoft.AgentFramework.Abstractions;
@@ -22,18 +21,29 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 /// </summary>
 internal sealed class AgentJsonTypeInfoResolver : IAgentJsonTypeInfoResolver
 {
-    private readonly JsonSerializerOptions _options;
+    private readonly JsonSerializerContext[] _contexts;
 
     public AgentJsonTypeInfoResolver(IEnumerable<JsonSerializerContext> contexts)
     {
-        // Build options with a resolver chain from the provided contexts
-        _options = new();
-        foreach (var context in contexts)
-        {
-            _options.TypeInfoResolverChain.Add(context);
-        }
+        _contexts = contexts.ToArray();
     }
 
     // <inheritdoc />
-    public JsonTypeInfo<T>? GetTypeInfo<T>() => (JsonTypeInfo<T>?)_options.GetTypeInfo(typeof(T));
+    public JsonTypeInfo<T>? GetTypeInfo<T>()
+    {
+        // Ask each context against its own Options, first registration wins. Chaining the
+        // contexts into one shared JsonSerializerOptions instead would bind their metadata to
+        // those options and silently drop each context's [JsonSourceGenerationOptions]
+        // (e.g. a camelCase naming policy, so "answer" no longer maps to Answer). It would
+        // also throw NotSupportedException for an unregistered type rather than return null.
+        foreach (var context in _contexts)
+        {
+            if (context.GetTypeInfo(typeof(T)) is JsonTypeInfo<T> typeInfo)
+            {
+                return typeInfo;
+            }
+        }
+
+        return null;
+    }
 }
