@@ -8,3 +8,13 @@ public sealed record TestPayload(string? Value);
 public partial class TestJsonContext : JsonSerializerContext
 {
 }
+
+public sealed record CamelCasePayload(string? Answer, double Confidence);
+
+// No [JsonPropertyName] on CamelCasePayload: the naming policy must come from the
+// context's own options, which is what consumers rely on.
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(CamelCasePayload))]
+public partial class CamelCaseJsonContext : JsonSerializerContext
+{
+}

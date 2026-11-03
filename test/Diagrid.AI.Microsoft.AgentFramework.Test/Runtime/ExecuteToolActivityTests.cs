@@ -87,7 +87,7 @@ public sealed class ExecuteToolActivityTests
     }
 
     [Fact]
-    public async Task RunAsync_ToolThrows_ClearsAmbientContextAndRethrows()
+    public async Task RunAsync_ToolThrows_ReturnsErrorAsToolResultAndClearsAmbientContext()
     {
         var accessor = new DaprAgentContextAccessor();
         var registry = new ToolRegistry();
@@ -97,13 +97,53 @@ public sealed class ExecuteToolActivityTests
             AIFunctionFactory.Create(throwTool, name: "failing"));
         var activity = BuildActivity(registry, accessor);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var output = await activity.RunAsync(
+            MakeContext(),
+            new ExecuteToolInput(AgentName, "failing", "call-1", "{}"));
+
+        Assert.Equal("call-1", output.CallId);
+        Assert.Equal("failing", output.FunctionName);
+        Assert.Equal("tool failed", output.Error);
+        var payload = JsonSerializer.Deserialize<JsonElement>(output.ResultJson!);
+        Assert.Equal("tool failed", payload.GetProperty("error").GetString());
+        Assert.Null(accessor.Current);
+    }
+
+    [Fact]
+    public async Task RunAsync_MissingRequiredArgument_ReturnsErrorAsToolResult()
+    {
+        // The LLM calling a tool without a required argument (seen with MAF's load_skill) must
+        // reach the model as a tool result it can correct, not fail the agent run.
+        var registry = new ToolRegistry();
+        registry.Register(
+            AgentName,
+            AIFunctionFactory.Create((string skillName) => skillName, name: "load_skill"));
+        var activity = BuildActivity(registry, new DaprAgentContextAccessor());
+
+        var output = await activity.RunAsync(
+            MakeContext(),
+            new ExecuteToolInput(AgentName, "load_skill", "call-1", "{}"));
+
+        Assert.NotNull(output.Error);
+        Assert.Contains("skillName", output.Error);
+        var payload = JsonSerializer.Deserialize<JsonElement>(output.ResultJson!);
+        Assert.Contains("skillName", payload.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task RunAsync_ToolCanceled_Rethrows()
+    {
+        var registry = new ToolRegistry();
+        Func<string> cancelTool = () => throw new OperationCanceledException("canceled");
+        registry.Register(
+            AgentName,
+            AIFunctionFactory.Create(cancelTool, name: "canceled"));
+        var activity = BuildActivity(registry, new DaprAgentContextAccessor());
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             activity.RunAsync(
                 MakeContext(),
-                new ExecuteToolInput(AgentName, "failing", "call-1", "{}")));
-
-        Assert.Equal("tool failed", ex.Message);
-        Assert.Null(accessor.Current);
+                new ExecuteToolInput(AgentName, "canceled", "call-1", "{}")));
     }
 
     [Fact]
