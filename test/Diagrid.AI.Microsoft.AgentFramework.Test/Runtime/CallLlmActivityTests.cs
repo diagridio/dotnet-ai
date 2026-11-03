@@ -628,6 +628,8 @@ public sealed class CallLlmActivityTests
             }
         }
 
+        public void SetNextResponse(ChatResponse response) => _nextResponse = response;
+
         public Task<ChatResponse> GetResponseAsync(
             IEnumerable<ChatMessage> messages,
             ChatOptions? options = null,

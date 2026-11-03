@@ -47,4 +47,39 @@ internal sealed record CallLlmInput(
     /// LLM call within the run.
     /// </summary>
     public List<string>? AdditionalToolNames { get; init; }
+
+    /// <summary>
+    /// Index in <see cref="Messages"/> of the first message of the current run; the ones before it
+    /// are history from earlier turns. <see cref="Abstractions.ReasoningReplay.WithinRun"/> sends
+    /// back only the reasoning from this index on. <see langword="null"/> (inputs recorded before this
+    /// existed) treats every message as part of the run.
+    /// </summary>
+    public int? RunMessagesStart { get; init; }
+
+    /// <summary>
+    /// Zero-based index of this LLM call within the run. From the second call on, a required tool
+    /// mode is not sent again, as <c>FunctionInvokingChatClient</c> does, or a model that obeys it
+    /// would call tools until the run hits its iteration limit. <see langword="null"/> (inputs
+    /// recorded before this existed) counts as the first call.
+    /// </summary>
+    public int? Iteration { get; init; }
+
+    /// <summary>
+    /// The stored conversation whose history goes before <see cref="Messages"/>, or <see langword="null"/>.
+    /// </summary>
+    public string? ConversationId { get; init; }
+
+    /// <summary>
+    /// The history prefix to load: entries below this sequence. <see langword="null"/> on the run's first call,
+    /// which loads the whole conversation and records how much it loaded in
+    /// <see cref="CallLlmOutput.HistorySequence"/>; later calls pass that back, so every call of a run sees the
+    /// same history even while other runs append to it.
+    /// </summary>
+    public long? HistoryUpToSequence { get; init; }
+
+    /// <summary>
+    /// The conversation incarnation the first call loaded, so a later call fails rather than loading a
+    /// conversation created again under the same id.
+    /// </summary>
+    public string? HistoryIncarnation { get; init; }
 }

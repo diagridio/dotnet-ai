@@ -67,14 +67,8 @@ internal sealed partial class ResolveAgentContextActivity(
     /// <inheritdoc />
     public override async Task<ResolveAgentContextOutput> RunAsync(WorkflowActivityContext context, ResolveAgentContextInput input)
     {
-        var config = chatClientRegistry.Get(input.AgentName);
-        if (config is null)
-        {
-            // Trigger lazy agent resolution — this runs the factory which populates
-            // ChatClientRegistry (including any configured AIContextProviders) as a side effect.
-            agentRegistry.Get(input.AgentName, input.ChatClientKey, serviceProvider);
-            config = chatClientRegistry.Get(input.AgentName);
-        }
+        // Runs the agent's factory first when needed, which registers its AIContextProviders too.
+        var config = AgentChatConfigLookup.Find(chatClientRegistry, agentRegistry, serviceProvider, input.AgentName, input.ChatClientKey);
 
         if (config?.ContextProviders is not { Count: > 0 } providers)
         {
@@ -85,7 +79,7 @@ internal sealed partial class ResolveAgentContextActivity(
 
         var agent = agentRegistry.Get(input.AgentName, input.ChatClientKey, serviceProvider);
         var session = await agent.CreateSessionAsync().ConfigureAwait(false);
-        var requestMessages = input.RequestMessages.Select(WorkflowChatMessageConverter.ToChatMessage).ToList();
+        var requestMessages = input.RequestMessages.Select(WorkflowChatMessageConverter.ToProviderMessage).ToList();
 
         // Seed the context the way ChatClientAgent does: providers see the agent's instructions,
         // tools and the run's request messages. Only what providers add on top is returned, so the

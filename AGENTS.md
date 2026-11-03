@@ -154,6 +154,28 @@ constrains how you may write code:
   *before* `AddDaprAgents()` — that is what `TryAddSingleton` is for, and it
   leaves one descriptor instead of two.
 
+- **The conversation store (`Conversations/`, `WithConversationStore`) has one invariant everything
+  else serves: a committed manifest never references a missing chunk.** A manifest lives at
+  `{KeyPrefix}{conversationId}` and immutable chunks at `{manifestKey}#{chunkId}`; an append writes
+  chunks, then commits the manifest conditioned on the ETag it read (first-write without an ETag for
+  a new conversation). A chunk an append wrote is deleted only when the manifest it just read does not
+  reference it **and** that commit can no longer land: the manifest exists with a different ETag. An
+  absent key proves nothing, because **Redis accepts a save conditioned on any ETag when the key is
+  missing**; that is also why `DeleteAsync` writes a tombstone instead of removing the key. Do not add a
+  delete after a failed or timed-out commit: the reply may have been lost after the write landed.
+  Redis reports a first-write conflict as gRPC `Internal` from its Lua script, not `Aborted`, so the
+  backend reads the key after a failed create rather than trusting the status. The Dapr client also
+  returns defaults instead of throwing when cancelled, hence the cancellation checks after each call.
+  `ConversationStoreRedisTests` pins each of these sidecar behaviors.
+  An agent run writes to the store only through `AppendConversationTurnActivity`, after its final
+  response, and only when `DaprAgentInvocation.ConversationId` is set: without one `AgentRunWorkflow`
+  must schedule exactly the activities it always did and call no `NewGuid()`, or in-flight instances stop
+  replaying. The golden tests in `Runtime/ConversationRunTests.cs` pin that sequence.
+  Compaction appends a summary entry (`AppendSummaryAsync`) instead of rewriting history: a load uses the
+  latest summary *inside its prefix*, so a prefix pinned before the summary never sees it. The workflow
+  schedules `CompactConversationActivity` only when the first `CallLlmOutput` recorded `CompactionDue`,
+  which keeps the decision deterministic across replays.
+
 ## Two unrelated things called "skills"
 
 This repo has a runtime **skills** feature. It is not Claude Code skills, and the

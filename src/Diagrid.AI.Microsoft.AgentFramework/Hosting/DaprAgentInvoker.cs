@@ -188,10 +188,14 @@ public sealed partial class DaprAgentInvoker(DaprWorkflowClient workflowClient, 
         AgentRunOptions? options,
         CancellationToken cancellationToken)
     {
-        var invocation = new DaprAgentInvocation(agent.Name, message, session, options)
+        // A conversation session carries only its id, which travels as ConversationId: the abstract
+        // AgentSession itself cannot be deserialized from the workflow input.
+        var conversationId = session.GetConversationId();
+        var invocation = new DaprAgentInvocation(agent.Name, message, conversationId is null ? session : null, options)
         {
             ChatClientKey = chatClientKey,
-            TelemetryBaggage = telemetryBaggage
+            TelemetryBaggage = telemetryBaggage,
+            ConversationId = conversationId
         };
 
         var instanceId = await workflowClient.ScheduleNewWorkflowAsync(

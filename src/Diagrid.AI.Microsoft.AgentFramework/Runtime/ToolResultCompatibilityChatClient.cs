@@ -72,6 +72,9 @@ internal sealed class ToolResultCompatibilityChatClient(IChatClient inner) : ICh
     /// <inheritdoc />
     public void Dispose() => inner.Dispose();
 
+    /// <summary>The client this one wraps.</summary>
+    internal IChatClient InnerClient => inner;
+
     private static List<ChatMessage> RewriteMessages(IEnumerable<ChatMessage> messages) => messages
         .Select(msg => ContainsFunctionResult(msg) ? RewriteFunctionResults(msg) : msg).ToList();
 

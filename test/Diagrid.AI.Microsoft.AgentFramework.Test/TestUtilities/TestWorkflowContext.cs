@@ -30,7 +30,17 @@ internal sealed class TestWorkflowContext : WorkflowContext
 
     public override bool IsReplaying => false;
 
-    public override Guid NewGuid() => Guid.NewGuid();
+    /// <summary>How many times the workflow called <see cref="NewGuid"/>.</summary>
+    public int NewGuidCalls { get; private set; }
+
+    /// <summary>Every activity call, in order, with the options it was scheduled with.</summary>
+    public List<(string Name, object? Input, WorkflowTaskOptions? Options)> ActivityCalls { get; } = [];
+
+    public override Guid NewGuid()
+    {
+        NewGuidCalls++;
+        return Guid.NewGuid();
+    }
 
     public override PropagatedHistory? GetPropagatedHistory() => null;
 
@@ -53,11 +63,13 @@ internal sealed class TestWorkflowContext : WorkflowContext
     public override Task<T> CallActivityAsync<T>(string name, object? input = null,
         WorkflowTaskOptions? options = null)
     {
+        ActivityCalls.Add((name, input, options));
         return CallActivityAsyncCore<T>(name, input);
     }
 
     public override Task CallActivityAsync(string name, object? input = null, WorkflowTaskOptions? options = null)
     {
+        ActivityCalls.Add((name, input, options));
         return CallActivityAsyncCore<object?>(name, input);
     }
 
@@ -71,6 +83,15 @@ internal sealed class TestWorkflowContext : WorkflowContext
         ChildWorkflowTaskOptions? options = null)
     {
         return CallActivityAsyncCore<object?>(workflowName, input);
+    }
+
+    public List<(string WorkflowName, string? InstanceId, object? Input)> DetachedWorkflows { get; } = [];
+
+    public override Task<string> ScheduleNewDetachedWorkflowAsync(string workflowName, string? instanceId = null,
+        object? input = null, DateTimeOffset? startTime = null)
+    {
+        DetachedWorkflows.Add((workflowName, instanceId, input));
+        return Task.FromResult(instanceId ?? $"{InstanceId}-detached-{DetachedWorkflows.Count}");
     }
 
     public override void SendEvent(string instanceId, string eventName, object? eventData = null)

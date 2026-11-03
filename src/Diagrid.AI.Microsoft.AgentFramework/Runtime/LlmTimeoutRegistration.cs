@@ -19,7 +19,7 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 /// </summary>
 /// <param name="AgentName">The agent the timeout applies to, or <see langword="null"/> for all agents.</param>
 /// <param name="Timeout">The timeout, or <see cref="System.Threading.Timeout.InfiniteTimeSpan"/> for none.</param>
-internal sealed record LlmTimeoutRegistration(string? AgentName, TimeSpan Timeout)
+internal sealed record LlmTimeoutRegistration(string? AgentName, TimeSpan Timeout) : IAgentScopedRegistration
 {
     /// <summary>
     /// The timeout used when nothing is registered. It matches the <see cref="HttpClient.Timeout"/>
@@ -43,22 +43,24 @@ internal sealed record LlmTimeoutRegistration(string? AgentName, TimeSpan Timeou
     /// <returns>The timeout to apply, possibly <see cref="System.Threading.Timeout.InfiniteTimeSpan"/>.</returns>
     internal static TimeSpan Resolve(IEnumerable<LlmTimeoutRegistration> registrations, string agentName)
     {
-        TimeSpan? fallback = null;
-        TimeSpan? named = null;
+        return AgentScopedRegistration.Resolve(registrations, agentName)?.Timeout ?? DefaultTimeout;
+    }
 
-        foreach (var registration in registrations)
+    /// <summary>
+    /// A token source that cancels after <paramref name="timeout"/>, or never for
+    /// <see cref="System.Threading.Timeout.InfiniteTimeSpan"/>. The caller disposes it.
+    /// </summary>
+    /// <param name="timeout">The timeout <see cref="Resolve"/> returned.</param>
+    /// <returns>The token source bounding one LLM call.</returns>
+    internal static CancellationTokenSource StartTimeout(TimeSpan timeout)
+    {
+        var timeoutCts = new CancellationTokenSource();
+        if (timeout != System.Threading.Timeout.InfiniteTimeSpan)
         {
-            if (registration.AgentName is null)
-            {
-                fallback = registration.Timeout;
-            }
-            else if (string.Equals(registration.AgentName, agentName, StringComparison.OrdinalIgnoreCase))
-            {
-                named = registration.Timeout;
-            }
+            timeoutCts.CancelAfter(timeout);
         }
 
-        return named ?? fallback ?? DefaultTimeout;
+        return timeoutCts;
     }
 
     /// <summary>

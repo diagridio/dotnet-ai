@@ -38,7 +38,9 @@ public sealed class ChatOptionsRecorder
                 HasOptions: options is not null,
                 AllowBackgroundResponses: options?.AllowBackgroundResponses,
                 ResponseFormat: options?.ResponseFormat,
-                ToolCount: options?.Tools?.Count ?? 0);
+                ToolCount: options?.Tools?.Count ?? 0,
+                ReasoningEffort: options?.Reasoning?.Effort,
+                Temperature: options?.Temperature);
         }
     }
 }
@@ -47,4 +49,6 @@ public sealed record ChatOptionsSnapshot(
     bool HasOptions,
     bool? AllowBackgroundResponses,
     ChatResponseFormat? ResponseFormat,
-    int ToolCount);
+    int ToolCount,
+    ReasoningEffort? ReasoningEffort = null,
+    float? Temperature = null);

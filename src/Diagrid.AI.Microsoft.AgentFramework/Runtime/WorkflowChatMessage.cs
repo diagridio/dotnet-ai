@@ -36,6 +36,38 @@ public sealed record WorkflowChatMessage
     /// Results returned to the LLM for previously requested tool calls, or <see langword="null"/> if none.
     /// </summary>
     public List<WorkflowFunctionResult>? FunctionResults { get; init; }
+
+    /// <summary>
+    /// Reasoning the model produced with this assistant message, in order, or <see langword="null"/> if none.
+    /// It is sent back to the model with the message, so later calls continue from it.
+    /// </summary>
+    public List<WorkflowReasoningContent>? Reasoning { get; init; }
+}
+
+/// <summary>
+/// JSON-serializable representation of a block of model reasoning (<c>Microsoft.Extensions.AI.TextReasoningContent</c>).
+/// </summary>
+public sealed record WorkflowReasoningContent
+{
+    /// <summary>
+    /// Human-readable reasoning text, or <see langword="null"/> when the provider returned only <see cref="ProtectedData"/>.
+    /// </summary>
+    public string? Text { get; init; }
+
+    /// <summary>
+    /// Opaque provider data, such as a signature or encrypted reasoning, that must be sent back to the
+    /// provider unchanged, or <see langword="null"/> if none.
+    /// </summary>
+    public string? ProtectedData { get; init; }
+
+    /// <summary>
+    /// The agent that produced this reasoning, as <c>agentName</c> or <c>agentName/chatClientKey</c>.
+    /// The reasoning is sent back only on that agent's later LLM calls, because a provider rejects
+    /// another provider's signed or encrypted reasoning. <see langword="null"/> when it is never sent
+    /// back: its origin is unknown, or the block cannot be rebuilt faithfully (it has no text, or the
+    /// provider's item carried an id).
+    /// </summary>
+    public string? Source { get; init; }
 }
 
 /// <summary>

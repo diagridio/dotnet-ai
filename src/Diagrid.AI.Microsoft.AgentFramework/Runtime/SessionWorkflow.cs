@@ -17,7 +17,8 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Runtime;
 /// <summary>
 /// A long-running workflow that reprsents a conversational session. Each turn is received as an external event,
 /// dispatched as a child <see cref="AgentRunWorkflow"/>, and the conversation log is accumulated as workflow-internal
-/// state.
+/// state. With <see cref="SessionWorkflowInput.ConversationId"/> set, the log lives in the conversation store
+/// instead, and each turn runs against it.
 /// </summary>
 public sealed class SessionWorkflow : Workflow<SessionWorkflowInput, string>
 {
@@ -51,19 +52,23 @@ public sealed class SessionWorkflow : Workflow<SessionWorkflowInput, string>
 
 			try
 			{
-				// Build the invocation with the prior conversation history
+				// Build the invocation with the prior conversation history: carried here, or loaded from the store
 				var invocation = new DaprAgentInvocation(turnRequest.AgentName, turnRequest.Message, null, turnRequest.Options)
 				{
 					ChatClientKey = turnRequest.ChatClientKey,
-					PriorMessages = conversationLog.Count > 0 ? conversationLog : null,
+					PriorMessages = input.ConversationId is null && conversationLog.Count > 0 ? conversationLog : null,
+					ConversationId = input.ConversationId,
 					TelemetryBaggage = turnRequest.TelemetryBaggage
 				};
 
 				// Dispatch as a child workflow - gets full durability
 				var result = await context.CallChildWorkflowAsync<AgentRunResult>(nameof(AgentRunWorkflow), invocation);
 
-				// Append this turn's messages to the session's conversation log
-				conversationLog.AddRange(result.TurnMessages);
+				// Append this turn's messages to the session's conversation log; the store already has them
+				if (input.ConversationId is null)
+				{
+					conversationLog.AddRange(result.TurnMessages);
+				}
 				turnCount++;
 
 				// Write the response to the custom status so the caller can read it

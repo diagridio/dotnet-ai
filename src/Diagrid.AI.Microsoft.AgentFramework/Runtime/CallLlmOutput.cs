@@ -29,4 +29,34 @@ internal sealed record CallLlmOutput
 
     /// <summary>Tool (function) calls requested by the LLM. Null or empty when <see cref="IsFinal"/> is true.</summary>
     public List<WorkflowFunctionCall>? FunctionCalls { get; init; }
+
+    /// <summary>Reasoning the model returned with this response, in order, or null if none.</summary>
+    public List<WorkflowReasoningContent>? Reasoning { get; init; }
+
+    /// <summary>
+    /// The agent's reasoning replay setting, resolved when the call ran. Recorded in the output so
+    /// the workflow decides whether to keep <see cref="Reasoning"/> the same way on every replay.
+    /// <see langword="null"/> in outputs recorded before this existed, which means
+    /// <see cref="Abstractions.ReasoningReplay.AcrossTurns"/>.
+    /// </summary>
+    public Abstractions.ReasoningReplay? ReasoningReplay { get; init; }
+
+    /// <summary>
+    /// How many stored conversation entries the call loaded, or <see langword="null"/> without a conversation.
+    /// The run pins its history to the value its first call recorded.
+    /// </summary>
+    public long? HistorySequence { get; init; }
+
+    /// <summary>
+    /// The incarnation of the stored conversation the call loaded, or <see langword="null"/> when it was empty
+    /// or there was none.
+    /// </summary>
+    public string? HistoryIncarnation { get; init; }
+
+    /// <summary>
+    /// <see langword="true"/> when the stored history the call loaded has grown past the agent's compaction
+    /// trigger (<c>WithConversationCompaction</c>), so the run compacts the conversation after its commit.
+    /// <see langword="null"/> otherwise.
+    /// </summary>
+    public bool? CompactionDue { get; init; }
 }

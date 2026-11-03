@@ -28,4 +28,11 @@ public sealed record SessionWorkflowInput
 		get => _maxTurns;
 		init => _maxTurns = value ?? 200;
 	}
+
+	/// <summary>
+	/// The stored conversation the session's turns continue, or <see langword="null"/> to keep the
+	/// conversation log in the workflow. With a conversation, each turn loads its history from the
+	/// conversation store and appends to it, so the session carries no growing log.
+	/// </summary>
+	public string? ConversationId { get; init; }
 }

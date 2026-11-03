@@ -185,4 +185,54 @@ public sealed class SessionTests(DaprFixture fixture)
 
         Assert.Equal(WorkflowRuntimeStatus.Completed, finalStatus);
     }
+
+    // ── Sessions backed by the conversation store ─────────────────────────────
+
+    [Fact]
+    public async Task SessionWithConversationStore_SeesTheSameHistoryAsALegacySession()
+    {
+        var agent = fixture.Invoker.GetAgent("HistoryAgent");
+
+        fixture.HistoryRecorder.Reset();
+        var legacy = await fixture.Invoker.CreateSessionAsync(fixture.WorkflowClient);
+        for (var i = 1; i <= 3; i++)
+        {
+            await fixture.Invoker.RunAgentAsync(agent, $"turn {i}", legacy);
+        }
+
+        var legacyCounts = fixture.HistoryRecorder.Counts;
+
+        fixture.HistoryRecorder.Reset();
+        var stored = await fixture.Invoker.CreateStoredSessionAsync(fixture.WorkflowClient,
+            cancellationToken: TestContext.Current.CancellationToken);
+        for (var i = 1; i <= 3; i++)
+        {
+            await fixture.Invoker.RunAgentAsync(agent, $"turn {i}", stored);
+        }
+
+        Assert.Equal(legacyCounts, fixture.HistoryRecorder.Counts);
+        var conversationId = stored.GetConversationId();
+        Assert.Equal(stored.GetSessionInstanceId(), conversationId);
+        var history = await fixture.ConversationStore.LoadAsync(conversationId!, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(["turn 1", "turn 2", "turn 3"], history.Entries.Where(e => e.Message.Role == "user").Select(e => e.Message.Content));
+    }
+
+    [Fact]
+    public async Task SessionWithConversationStore_KeepsReasoningAcrossTurns_AndANewSessionCanContinueIt()
+    {
+        var agent = fixture.Invoker.GetAgent(ReasoningMockChatClient.AgentName);
+        var first = await fixture.Invoker.CreateStoredSessionAsync(fixture.WorkflowClient,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal("seen:thought-1", (await fixture.Invoker.RunAgentAsync(agent, "turn 1", first)).Text);
+
+        // A second session continues the same stored conversation, found through a reattached session.
+        var reattached = fixture.Invoker.AttachSession(first.GetSessionInstanceId()!, first.GetConversationId()!);
+        var second = await fixture.Invoker.CreateStoredSessionAsync(fixture.WorkflowClient,
+            new DaprSessionOptions { ConversationId = reattached.GetConversationId() },
+            TestContext.Current.CancellationToken);
+        Assert.NotEqual(first.GetSessionInstanceId(), second.GetSessionInstanceId());
+
+        Assert.Equal("seen:thought-1,thought-2,thought-3", (await fixture.Invoker.RunAgentAsync(agent, "turn 2", second)).Text);
+    }
 }

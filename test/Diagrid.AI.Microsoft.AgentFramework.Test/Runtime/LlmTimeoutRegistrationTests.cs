@@ -54,4 +54,22 @@ public sealed class LlmTimeoutRegistrationTests
 
         Assert.Equal(TimeSpan.FromMinutes(10), LlmTimeoutRegistration.Resolve(registrations, "agent"));
     }
+
+    [Fact]
+    public async Task StartTimeout_CancelsAfterTheTimeout()
+    {
+        using var timeoutCts = LlmTimeoutRegistration.StartTimeout(TimeSpan.FromMilliseconds(1));
+
+        await Task.Delay(Timeout.Infinite, timeoutCts.Token).ContinueWith(_ => { }, TestContext.Current.CancellationToken);
+
+        Assert.True(timeoutCts.IsCancellationRequested);
+    }
+
+    [Fact]
+    public void StartTimeout_Infinite_NeverCancels()
+    {
+        using var timeoutCts = LlmTimeoutRegistration.StartTimeout(Timeout.InfiniteTimeSpan);
+
+        Assert.False(timeoutCts.IsCancellationRequested);
+    }
 }
