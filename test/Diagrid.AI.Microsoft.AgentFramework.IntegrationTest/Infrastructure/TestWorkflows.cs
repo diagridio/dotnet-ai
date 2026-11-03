@@ -22,6 +22,17 @@ internal sealed class EchoOrchestrationWorkflow : Workflow<string, string>
 }
 
 /// <summary>
+/// Custom workflow that starts EchoAgent as a detached run via
+/// <see cref="WorkflowContextExtensions.StartAgentRunDetachedAsync"/> and completes immediately with the
+/// run's instance ID, without waiting for the run.
+/// </summary>
+internal sealed class DetachedEchoOrchestrationWorkflow : Workflow<string, string>
+{
+    public override Task<string> RunAsync(WorkflowContext context, string input) =>
+        context.StartAgentRunDetachedAsync(context.GetAgent("EchoAgent"), message: input);
+}
+
+/// <summary>
 /// Custom workflow that invokes CapitalAgent and deserializes its JSON response via
 /// <see cref="WorkflowContextExtensions.RunAgentAndDeserializeAsync{T}"/>.
 /// </summary>
