@@ -40,10 +40,10 @@ builder.Services.AddDaprAgents()
             description: "Tells a short, work-appropriate joke on request.",
             instructions: "When asked for a joke, tell exactly one short, clean joke. Do not explain it."))
         // Class-based: instructions + an [AgentSkillScript]-attributed method live together on one
-        // C# class. UseScriptApproval() means run_skill_script for THIS script (and any other
+        // C# class. Re-enabling script approval means run_skill_script for THIS script (and any other
         // skill's scripts) is gated by IToolApprovalHandler before it actually runs.
         .UseSkill(new GreetingSkill())
-        .UseScriptApproval());
+        .UseOptions(o => o.DisableRunSkillScriptApproval = false));
 
 var app = builder.Build();
 
