@@ -145,6 +145,59 @@ public static class DaprAgentsBuilderExtensions
         return builder.WithContextProviders(agentName, skillsBuilder.Build());
     }
 
+    // =========================================================================
+    // LLM call timeouts
+    //
+    // https://github.com/diagridio/dotnet-ai/issues/42: every Dapr Conversation call used to be cut
+    // off by the 100-second HttpClient.Timeout default of the shared DaprConversationClient, which a
+    // slow (e.g. local) model easily exceeds. AddDaprAgents now lifts that shared cap and
+    // CallLlmActivity applies the timeout per call instead, so it can differ per agent.
+    // =========================================================================
+
+    /// <summary>
+    /// Sets the timeout for every LLM call made by any agent that has no timeout of its own.
+    /// Defaults to 100 seconds.
+    /// </summary>
+    /// <param name="builder">The agents builder.</param>
+    /// <param name="timeout">The timeout per LLM call, or <see cref="Timeout.InfiniteTimeSpan"/> for none.</param>
+    /// <returns>The agents builder.</returns>
+    /// <remarks>
+    /// The timeout bounds a single LLM call (one <c>CallLlmActivity</c>), not a whole agent run.
+    /// If you register your own <c>DaprConversationClient</c>, its <see cref="HttpClient.Timeout"/>
+    /// still applies on top of this one.
+    /// </remarks>
+    public static IAgentsBuilder WithLlmTimeout(this IAgentsBuilder builder, TimeSpan timeout)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        LlmTimeoutRegistration.Validate(timeout, nameof(timeout));
+
+        GetServices(builder).AddSingleton(new LlmTimeoutRegistration(null, timeout));
+
+        return builder;
+    }
+
+    /// <summary>
+    /// Sets the timeout for every LLM call made by the named agent, overriding the default set by
+    /// <see cref="WithLlmTimeout(IAgentsBuilder, TimeSpan)"/>.
+    /// </summary>
+    /// <param name="builder">The agents builder.</param>
+    /// <param name="agentName">The name of the agent the timeout applies to.</param>
+    /// <param name="timeout">The timeout per LLM call, or <see cref="Timeout.InfiniteTimeSpan"/> for none.</param>
+    /// <returns>The agents builder.</returns>
+    /// <remarks>
+    /// Can be called before or after <c>WithAgent(...)</c> for the same agent name.
+    /// </remarks>
+    public static IAgentsBuilder WithLlmTimeout(this IAgentsBuilder builder, string agentName, TimeSpan timeout)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentName);
+        LlmTimeoutRegistration.Validate(timeout, nameof(timeout));
+
+        GetServices(builder).AddSingleton(new LlmTimeoutRegistration(agentName, timeout));
+
+        return builder;
+    }
+
     /// <summary>
     /// Registers a keyed <see cref="DaprChatClient"/> and an agent that uses it.
     /// </summary>
