@@ -12,9 +12,6 @@ The following shows the simple dependency injection registration of MAF agents:
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
 
-// Register Dapr conversation client
-builder.Services.AddDaprConversationClient();
-
 // Register agents to run within 
 builder.Services.AddDaprAgents()
     .WithAgent(
@@ -40,7 +37,6 @@ public partial class AgentInvokerJsonContext : JsonSerializerContext;
 
 // Program startup
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddDaprConversationClient();
 builder.Services.AddDaprAgents(serializationOptions => 
 {
     serializationOptions.AddContext(() => AgentInvokerJsonContext.Default);
@@ -66,7 +62,6 @@ public sealed record StructuredAnswer(string Answer, double Confidence);
 public partial class AgentInvokerJsonContext : JsonSerializerContext;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddDaprConversationClient();
 builder.Services.AddDaprAgents(serializationOptions => 
 {
     serializationOptions.AddContext(() => AgentInvokerJsonContext.Default); // Necessary to deserialize the workflow results to strongly typed values
@@ -115,6 +110,29 @@ public sealed partial class SampleWorkflow : Workflow<string, string>
     }
 }
 ```
+
+## LLM call timeouts
+Each LLM call is bounded by a timeout, 100 seconds unless you change it. A slow model, such as one
+running locally, can need more. Set a default for every agent, override it per agent, or pass
+`Timeout.InfiniteTimeSpan` to disable it:
+
+```csharp
+builder.Services.AddDaprAgents()
+    .WithAgent(
+        agentName: "SampleAgent",
+        conversationComponentName: "conversation-ollama",
+        instructions: "You are a helpful assistant.")
+    .WithLlmTimeout(TimeSpan.FromMinutes(3))                  // every agent
+    .WithLlmTimeout("SampleAgent", TimeSpan.FromMinutes(10)); // this agent only
+```
+
+The timeout applies to one LLM call, not to a whole agent run. A call that exceeds it fails its
+activity with a `TimeoutException` naming the agent.
+
+> `AddDaprAgents()` registers the Dapr Conversation client itself, without the 100-second
+> `HttpClient` cap. If you register your own with `AddDaprConversationClient(...)` *before*
+> `AddDaprAgents()`, yours is kept, and its `HttpClient.Timeout` (100 seconds by default) still
+> applies on top of `WithLlmTimeout`, so set it with `UseTimeout(...)` as well.
 
 ## Skills
 Skills are portable packages of instructions, reference material, and scripts that give an agent
