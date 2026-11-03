@@ -19,8 +19,8 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Catalyst;
 /// </summary>
 /// <param name="Name">The name of the tool.</param>
 /// <param name="Description">The description of the tool's functionality.</param>
-/// <param name="Arguments">Arguments for the tool.</param>
+/// <param name="Arguments">The JSON schema of the tool's arguments, serialized as a string.</param>
 public sealed record ToolMetadata(
 	[property: JsonPropertyName("name")] string Name,
 	[property: JsonPropertyName("description")] string Description,
-	[property: JsonPropertyName("arguments")] string Arguments);
+	[property: JsonPropertyName("args")] string Arguments);

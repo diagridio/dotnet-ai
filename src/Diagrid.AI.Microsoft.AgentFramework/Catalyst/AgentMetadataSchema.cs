@@ -40,6 +40,7 @@ public sealed record AgentMetadataSchema(
 	/// <summary>
 	/// Memory configuration, if enabled.
 	/// </summary>
+	[JsonPropertyName("memory")]
 	public MemoryMetadata? Memory { get; init; }
 	
 	/// <summary>
