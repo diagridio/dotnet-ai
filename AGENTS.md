@@ -87,8 +87,10 @@ dotnet test test/Diagrid.AI.Microsoft.AgentFramework.Test/Diagrid.AI.Microsoft.A
   from the `build` job, not from the gate jobs.
 - **Integration tests need Docker and start a real sidecar.** `DaprFixture` uses
   `Dapr.Testcontainers` to bring up a network, Placement, Scheduler and Redis,
-  then a real `daprd`. Note the skew: the Dapr SDK packages are `1.18.4` but the
-  sidecar image **defaults to `1.17.0`** unless `DAPR_RUNTIME_VERSION` is set.
+  then a real `daprd`. The Dapr SDK packages and the sidecar image are both
+  `1.19.0`; set `DAPR_RUNTIME_VERSION` to test another sidecar. Anything that
+  depends on 1.19 sidecar features (detached workflows, stateful history, binary
+  store payloads) fails against an older one.
   No real LLM is involved — every agent is a mock `IChatClient`. All tests share
   one xunit collection, so they run serialized, and the fixture mutates
   process-wide `DAPR_HTTP_PORT`/`DAPR_GRPC_PORT`. It also *reflects* on a
