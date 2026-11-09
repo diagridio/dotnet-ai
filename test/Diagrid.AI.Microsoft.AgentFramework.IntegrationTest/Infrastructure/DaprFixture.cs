@@ -124,7 +124,7 @@ public sealed class DaprFixture : IAsyncLifetime
         //    We pass startApp: null and manage the test app ourselves so we can wire up
         //    AddDaprAgents() after the sidecar ports are known.
         _harness = new DaprHarnessBuilder(componentsDir)
-            .WithOptions(new DaprRuntimeOptions(Environment.GetEnvironmentVariable("DAPR_RUNTIME_VERSION") ?? "1.17.0"))
+            .WithOptions(new DaprRuntimeOptions(Environment.GetEnvironmentVariable("DAPR_RUNTIME_VERSION") ?? "1.19.0"))
             .WithEnvironment(_environment)
             .BuildWorkflow();
         SetDaprConfigFilePath(_harness, "/components/otel-tracing-config.yaml");
