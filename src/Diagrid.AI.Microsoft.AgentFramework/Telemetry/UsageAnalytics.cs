@@ -40,8 +40,8 @@ namespace Diagrid.AI.Microsoft.AgentFramework.Telemetry;
 /// <para>
 /// There is no logger at this static level, and this type never writes to the console or
 /// any other output: adding one would risk surfacing noise in a host application that
-/// never asked for it. Set <see cref="Endpoint"/> to an empty string to turn this class
-/// into a no-op.
+/// never asked for it. <see cref="Endpoint"/> and <see cref="ReoEndpoint"/> each silence
+/// their own destination when set to an empty string, and the opt-out variables silence both.
 /// </para>
 /// </remarks>
 internal static class UsageAnalytics

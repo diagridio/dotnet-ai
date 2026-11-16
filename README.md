@@ -212,7 +212,8 @@ a complete, runnable example covering all three discovery mechanisms plus script
 ## Usage analytics
 
 `AddDaprAgents()` reports one anonymous usage event the first time it's called, once per
-package per process. NuGet publishes aggregate download counts only, so this is how Diagrid
+package per process. That one event goes to two services, Scarf and Reo, so you will see two
+requests to two hosts in egress logs. NuGet publishes aggregate download counts only, so this is how Diagrid
 sees which package versions run on which platforms. Because it is one event per process, a
 Kubernetes deployment produces one event per replica per restart: the numbers count process
 starts, not deployments or users.
@@ -221,7 +222,7 @@ starts, not deployments or users.
 runtime version, the agent framework and the installed version of its library (`framework`,
 `framework_version`), `kind=agent`, whether the process points at Catalyst or at a plain Dapr
 sidecar (`target`), and whether it runs under a CI variable (`ci`). Nothing else: no
-application data, configuration, app IDs, prompts, or hostnames.
+application data, configuration, app IDs, prompts, hostnames, or file paths.
 
 Two services receive these events. Each derives coarse company and location information from
 the request IP:
@@ -231,15 +232,18 @@ the request IP:
 - [Reo](https://www.reo.dev) receives a `GET` to `https://telemetry.diagrid.io/data`, with no API
   key and no auth header. It gets the package name (`product`), package version (`version`),
   .NET runtime version (`dotnet`), operating system (`platform`), architecture (`arch`), `kind`,
-  `framework` and `framework_version`. It does not get `target` or `ci`. See
+  `framework` and `framework_version`, plus the constant `activity_type=nuget_runtime`. It does
+  not get `target` or `ci`. See
   [Reo's privacy policy](https://www.reo.dev/privacy-policy).
 
 **Reo reports less often than Scarf.** No Reo event is sent:
 
 - inside Kubernetes (`KUBERNETES_SERVICE_HOST` is set),
 - under a CI variable,
-- when the process points at Catalyst (a Dapr endpoint or token variable), or when the Dapr
-  endpoint value can't be parsed.
+- when `DAPR_GRPC_ENDPOINT` or `DAPR_HTTP_ENDPOINT` points at a host under `diagrid.io`, or
+  `DAPR_API_TOKEN` is set (this also covers a self-hosted sidecar that uses API-token auth). A
+  local endpoint such as `http://localhost:50001` does not skip Reo,
+- when a Dapr endpoint value can't be parsed.
 
 Scarf still reports in all of these cases. The two services will therefore show different
 totals. Scarf counts every process start. Reo counts only starts outside Kubernetes, CI and
