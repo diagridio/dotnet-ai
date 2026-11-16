@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Reflection;
 using Diagrid.AI.Microsoft.AgentFramework.Telemetry;
 
 namespace Diagrid.AI.Microsoft.AgentFramework.Test.Hosting;
@@ -392,6 +393,253 @@ public sealed class UsageAnalyticsTests
         var exception = Record.Exception(() => UsageAnalytics.Report(package, null));
 
         Assert.Null(exception);
+    }
+
+    [Fact]
+    public async Task ScarfUrl_HasTheDocumentedShape()
+    {
+        using var scope = new EnvironmentVariableScope();
+        UsageAnalytics.ResetForTests();
+        var tcs = new TaskCompletionSource<Uri>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var originalSender = UsageAnalytics.Sender;
+        try
+        {
+            UsageAnalytics.Sender = (uri, _) =>
+            {
+                tcs.TrySetResult(uri);
+                return Task.CompletedTask;
+            };
+
+            UsageAnalytics.Report("Diagrid.AI.Microsoft.AgentFramework", new Dictionary<string, string?>
+            {
+                ["os"] = "linux",
+                ["arch"] = "x64",
+                ["target"] = "dapr",
+                ["ci"] = "false",
+                ["kind"] = "agent",
+                ["framework"] = "AgentFramework",
+                ["framework_version"] = "1.0.0",
+            });
+
+            var uri = await WaitForSendAsync(tcs, TimeSpan.FromSeconds(2));
+
+            // Captured from the unmodified class. Only the two machine/build-dependent
+            // values are substituted: version (MinVer, changes every commit) and
+            // dotnet_version (the runtime patch). Everything else is the literal.
+            var packageVersion = typeof(UsageAnalytics).Assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion.Split('+')[0];
+            Assert.Equal(
+                "https://diagrid.gateway.scarf.sh/dotnet-ai?arch=x64&ci=false" +
+                $"&dotnet_version={Environment.Version}" +
+                "&framework=AgentFramework&framework_version=1.0.0&kind=agent&os=linux" +
+                "&package=Diagrid.AI.Microsoft.AgentFramework&target=dapr" +
+                $"&version={packageVersion}",
+                uri.AbsoluteUri);
+        }
+        finally
+        {
+            UsageAnalytics.Sender = originalSender;
+            UsageAnalytics.ResetForTests();
+        }
+    }
+
+    [Fact]
+    public async Task Report_SendsToEachAllowedDestination()
+    {
+        using var scope = new EnvironmentVariableScope();
+        var sent = new ConcurrentQueue<Uri>();
+        await WithDestinationsAsync(
+            [Fake("one", "https://one.invalid/x"), Fake("two", "https://two.invalid/x")],
+            sent,
+            async () =>
+            {
+                UsageAnalytics.Report(UniquePackageName());
+                await WaitForCountAsync(sent, 2);
+            });
+
+        Assert.Equal(["one.invalid", "two.invalid"], sent.Select(u => u.Host).OrderBy(h => h, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task Report_SkipsADestinationWhoseGateIsClosed()
+    {
+        using var scope = new EnvironmentVariableScope();
+        var sent = new ConcurrentQueue<Uri>();
+        await WithDestinationsAsync(
+            [Fake("one", "https://one.invalid/x", allowed: () => false), Fake("two", "https://two.invalid/x")],
+            sent,
+            async () =>
+            {
+                UsageAnalytics.Report(UniquePackageName());
+                await WaitForCountAsync(sent, 1);
+                await Task.Delay(300);
+            });
+
+        Assert.Equal(["two.invalid"], sent.Select(u => u.Host));
+    }
+
+    [Fact]
+    public async Task Report_DedupesPerDestinationPerPackage()
+    {
+        using var scope = new EnvironmentVariableScope();
+        var sent = new ConcurrentQueue<Uri>();
+        var oneOpen = false;
+        var package = UniquePackageName();
+        await WithDestinationsAsync(
+            [Fake("one", "https://one.invalid/x", allowed: () => oneOpen), Fake("two", "https://two.invalid/x")],
+            sent,
+            async () =>
+            {
+                // First call: "one" is gated shut, "two" sends.
+                UsageAnalytics.Report(package);
+                await WaitForCountAsync(sent, 1);
+
+                // Second call: "one" opens. It must still get its single send, because the
+                // closed gate did not consume it, while "two" must not send again.
+                oneOpen = true;
+                UsageAnalytics.Report(package);
+                UsageAnalytics.Report(package);
+                await WaitForCountAsync(sent, 2);
+                await Task.Delay(300);
+            });
+
+        Assert.Equal(["one.invalid", "two.invalid"], sent.Select(u => u.Host).OrderBy(h => h, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task Report_ADestinationThatThrows_DoesNotStopTheOthers()
+    {
+        using var scope = new EnvironmentVariableScope();
+        var sent = new ConcurrentQueue<Uri>();
+        await WithDestinationsAsync(
+            [
+                Fake("gate-throws", "https://a.invalid/x", allowed: () => throw new InvalidOperationException("boom")),
+                new UsageAnalytics.Destination("build-throws", "https://b.invalid/x", () => true, (_, _, _) => throw new InvalidOperationException("boom")),
+                Fake("ok", "https://ok.invalid/x"),
+            ],
+            sent,
+            async () =>
+            {
+                var exception = Record.Exception(() => UsageAnalytics.Report(UniquePackageName()));
+                Assert.Null(exception);
+                await WaitForCountAsync(sent, 1);
+                await Task.Delay(300);
+            });
+
+        Assert.Equal(["ok.invalid"], sent.Select(u => u.Host));
+    }
+
+    [Fact]
+    public async Task Report_EmptyEndpointOnADestination_IsANoOpForThatDestinationOnly()
+    {
+        using var scope = new EnvironmentVariableScope();
+        var sent = new ConcurrentQueue<Uri>();
+        await WithDestinationsAsync(
+            [Fake("one", string.Empty), Fake("two", "https://two.invalid/x")],
+            sent,
+            async () =>
+            {
+                UsageAnalytics.Report(UniquePackageName());
+                await WaitForCountAsync(sent, 1);
+                await Task.Delay(300);
+            });
+
+        Assert.Equal(["two.invalid"], sent.Select(u => u.Host));
+    }
+
+    [Fact]
+    public async Task Report_WritesNothingToConsole_WhenEndpointIsUnreachable()
+    {
+        // The class has no logger by design, and a faulted unobserved Task is the one
+        // remaining way telemetry noise can reach a host application.
+        using var scope = new EnvironmentVariableScope();
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+        var originalSender = UsageAnalytics.Sender;
+        var originalEndpoint = UsageAnalytics.Endpoint;
+        using var captured = new StringWriter();
+        try
+        {
+            Console.SetOut(captured);
+            Console.SetError(captured);
+            UsageAnalytics.Sender = null;
+
+            // Port 1 on loopback refuses the connection immediately.
+            UsageAnalytics.Endpoint = "http://127.0.0.1:1/unreachable";
+            UsageAnalytics.Report(UniquePackageName());
+
+            await Task.Delay(TimeSpan.FromMilliseconds(1500));
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+            UsageAnalytics.Sender = originalSender;
+            UsageAnalytics.Endpoint = originalEndpoint;
+        }
+
+        Assert.Equal(string.Empty, captured.ToString());
+    }
+
+    [Fact]
+    public void Endpoint_StillProxiesToTheScarfDestination()
+    {
+        // The existing seam. The original tests depend on it and must not be edited.
+        var original = UsageAnalytics.Endpoint;
+        try
+        {
+            UsageAnalytics.Endpoint = "https://example.invalid/x";
+            Assert.Equal(
+                "https://example.invalid/x",
+                UsageAnalytics.Destinations.Single(d => d.Name == "scarf").Endpoint);
+        }
+        finally
+        {
+            UsageAnalytics.Endpoint = original;
+        }
+    }
+
+    private static UsageAnalytics.Destination Fake(string name, string endpoint, Func<bool>? allowed = null) =>
+        new(name, endpoint, allowed ?? (() => true), (e, package, _) => new Uri($"{e}?package={package}"));
+
+    private static async Task WithDestinationsAsync(
+        IReadOnlyList<UsageAnalytics.Destination> destinations,
+        ConcurrentQueue<Uri> sent,
+        Func<Task> body)
+    {
+        var originalDestinations = UsageAnalytics.Destinations;
+        var originalSender = UsageAnalytics.Sender;
+        try
+        {
+            UsageAnalytics.Destinations = [.. destinations];
+            UsageAnalytics.Sender = (uri, _) =>
+            {
+                sent.Enqueue(uri);
+                return Task.CompletedTask;
+            };
+
+            await body();
+        }
+        finally
+        {
+            UsageAnalytics.Destinations = originalDestinations;
+            UsageAnalytics.Sender = originalSender;
+            UsageAnalytics.ResetForTests();
+        }
+    }
+
+    private static async Task WaitForCountAsync(ConcurrentQueue<Uri> sent, int count)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(2);
+        while (sent.Count < count && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.True(sent.Count >= count, $"expected {count} sends, saw {sent.Count}");
     }
 
     // Short on purpose: every dimension value, the package name included, is capped at

@@ -101,7 +101,7 @@ internal static class UsageAnalytics
     private const int MaxDimensionLength = 64;
 
     private static readonly object ReportedPackagesLock = new();
-    private static readonly HashSet<string> ReportedPackages = new(StringComparer.Ordinal);
+    private static readonly HashSet<(string Destination, string Package)> ReportedPackages = [];
 
     // Shared for the lifetime of the process, matching the general guidance to never
     // create a short-lived HttpClient per call. The one second timeout bounds each event
@@ -109,11 +109,70 @@ internal static class UsageAnalytics
     private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromSeconds(1) };
 
     /// <summary>
+    /// One place usage events are sent: a name, an endpoint, a gate that decides whether
+    /// to send at all, and a function that turns the event into a request URI.
+    /// </summary>
+    internal sealed class Destination
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="Destination"/> class.
+        /// </summary>
+        /// <param name="name">The destination name, part of the per-process dedupe key.</param>
+        /// <param name="endpoint">The endpoint events are sent to. Empty turns this destination into a no-op.</param>
+        /// <param name="allowed">Returns <see langword="false"/> when this destination must stay silent.</param>
+        /// <param name="buildUri">Builds the request URI from the endpoint, package and caller dimensions.</param>
+        internal Destination(
+            string name,
+            string endpoint,
+            Func<bool> allowed,
+            Func<string, string, IReadOnlyDictionary<string, string?>?, Uri> buildUri)
+        {
+            Name = name;
+            Endpoint = endpoint;
+            Allowed = allowed;
+            BuildUri = buildUri;
+        }
+
+        /// <summary>Gets the destination name.</summary>
+        internal string Name { get; }
+
+        /// <summary>Gets or sets the endpoint. Set to an empty string to disable this destination.</summary>
+        internal string Endpoint { get; set; }
+
+        /// <summary>Gets the gate. A destination whose gate returns <see langword="false"/> sends nothing.</summary>
+        internal Func<bool> Allowed { get; }
+
+        /// <summary>Gets the function that builds the request URI.</summary>
+        internal Func<string, string, IReadOnlyDictionary<string, string?>?, Uri> BuildUri { get; }
+    }
+
+    /// <summary>
+    /// Gets or sets the destinations every event is sent to. Tests replace the list; it
+    /// is read once per <see cref="Report"/> call.
+    /// </summary>
+    internal static IReadOnlyList<Destination> Destinations { get; set; } =
+    [
+        new Destination("scarf", "https://diagrid.gateway.scarf.sh/dotnet-ai", () => !IsReportingDisabled(), BuildUrl),
+    ];
+
+    /// <summary>
     /// Gets or sets the Scarf event-collection endpoint that receives usage events. The
     /// route only records the request and redirects nowhere. Set to an empty string to
-    /// turn usage reporting into a no-op, including in tests.
+    /// turn Scarf reporting into a no-op, including in tests. This proxies to the Scarf
+    /// entry of <see cref="Destinations"/>.
     /// </summary>
-    internal static string Endpoint { get; set; } = "https://diagrid.gateway.scarf.sh/dotnet-ai";
+    internal static string Endpoint
+    {
+        get => Destinations.FirstOrDefault(d => d.Name == "scarf")?.Endpoint ?? string.Empty;
+        set
+        {
+            var scarf = Destinations.FirstOrDefault(d => d.Name == "scarf");
+            if (scarf is not null)
+            {
+                scarf.Endpoint = value;
+            }
+        }
+    }
 
     /// <summary>
     /// Gets or sets a test hook that replaces the default HTTP GET. <see langword="null"/>
@@ -151,21 +210,13 @@ internal static class UsageAnalytics
     {
         try
         {
-            var endpoint = Endpoint;
-            if (string.IsNullOrEmpty(endpoint))
-            {
-                return;
-            }
-
-            lock (ReportedPackagesLock)
-            {
-                if (!ReportedPackages.Add(package))
-                {
-                    return;
-                }
-            }
-
-            if (IsReportingDisabled())
+            // Snapshot each destination's endpoint now, matching the time-of-call
+            // behaviour of the single endpoint this replaced.
+            var targets = Destinations
+                .Select(destination => (Destination: destination, Endpoint: destination.Endpoint))
+                .Where(target => !string.IsNullOrEmpty(target.Endpoint))
+                .ToArray();
+            if (targets.Length == 0)
             {
                 return;
             }
@@ -176,7 +227,7 @@ internal static class UsageAnalytics
                 ? null
                 : new Dictionary<string, string?>(dimensions, StringComparer.Ordinal);
 
-            _ = Task.Run(() => SendEventAsync(package, endpoint, capturedDimensions));
+            _ = Task.Run(() => SendEventsAsync(package, targets, capturedDimensions));
         }
         catch
         {
@@ -203,29 +254,63 @@ internal static class UsageAnalytics
         }
     }
 
-    private static async Task SendEventAsync(string package, string endpoint, IReadOnlyDictionary<string, string?>? dimensions)
+    private static async Task SendEventsAsync(
+        string package,
+        (Destination Destination, string Endpoint)[] targets,
+        IReadOnlyDictionary<string, string?>? dimensions)
     {
         try
         {
-            var uri = BuildUrl(endpoint, package, dimensions);
-            var sender = Sender;
-            if (sender is not null)
+            foreach (var (destination, endpoint) in targets)
             {
-                await sender(uri, CancellationToken.None).ConfigureAwait(false);
-                return;
-            }
+                // One destination's failure, in its gate, URI builder or send, must never
+                // affect another's, and nothing may escape as an unobserved task fault.
+                try
+                {
+                    // The gate runs before the dedupe key is taken, so a closed gate on
+                    // one destination never consumes that destination's single send.
+                    if (!destination.Allowed())
+                    {
+                        continue;
+                    }
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-            request.Headers.TryAddWithoutValidation("User-Agent", $"{package}/{PackageVersion()}");
-            using var response = await Client
-                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, CancellationToken.None)
-                .ConfigureAwait(false);
+                    lock (ReportedPackagesLock)
+                    {
+                        if (!ReportedPackages.Add((destination.Name, package)))
+                        {
+                            continue;
+                        }
+                    }
+
+                    await SendAsync(package, destination.BuildUri(endpoint, package, dimensions)).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Fire-and-forget: blocked egress and air-gapped clusters are normal
+                    // conditions, not faults, so every failure here is swallowed silently.
+                }
+            }
         }
         catch
         {
-            // Fire-and-forget: blocked egress and air-gapped clusters are normal
-            // conditions, not faults, so every failure here is swallowed silently.
+            // Unreachable in practice; kept so the background task can never fault.
         }
+    }
+
+    private static async Task SendAsync(string package, Uri uri)
+    {
+        var sender = Sender;
+        if (sender is not null)
+        {
+            await sender(uri, CancellationToken.None).ConfigureAwait(false);
+            return;
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+        request.Headers.TryAddWithoutValidation("User-Agent", $"{package}/{PackageVersion()}");
+        using var response = await Client
+            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, CancellationToken.None)
+            .ConfigureAwait(false);
     }
 
     private static Uri BuildUrl(string endpoint, string package, IReadOnlyDictionary<string, string?>? dimensions)
