@@ -254,6 +254,52 @@ internal static class UsageAnalytics
         }
     }
 
+    /// <summary>
+    /// Returns <see langword="true"/> when an event may be sent to Reo. Stricter than
+    /// Scarf's gate, which is opt-out only: all four conditions must hold, and anything
+    /// that cannot be determined counts as closed.
+    /// </summary>
+    /// <remarks>
+    /// The conditions are: the user has not opted out; <c>KUBERNETES_SERVICE_HOST</c> is
+    /// unset; <see cref="DetectTarget"/> reports <c>dapr</c>; and no CI variable is set.
+    /// The cluster check lives here rather than in <see cref="DetectTarget"/> because
+    /// that feeds Scarf's <c>target</c> dimension, which must not change.
+    /// </remarks>
+    internal static bool ReoAllowed()
+    {
+        try
+        {
+            if (IsReportingDisabled())
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("KUBERNETES_SERVICE_HOST")))
+            {
+                return false;
+            }
+
+            // DetectTarget reads an unparseable endpoint as "dapr" (no host to match, so no
+            // catalyst). Scarf's dimension keeps that behaviour; Reo cannot tell where such
+            // a process points, so it stays closed.
+            foreach (var name in DaprEndpointEnvironmentVariables)
+            {
+                var value = Environment.GetEnvironmentVariable(name);
+                if (!string.IsNullOrWhiteSpace(value) && !IsParseableEndpoint(value.Trim()))
+                {
+                    return false;
+                }
+            }
+
+            return DetectTarget() == "dapr" && !IsRunningInCi();
+        }
+        catch
+        {
+            // Fail closed: an indeterminate environment never sends to Reo.
+            return false;
+        }
+    }
+
     private static async Task SendEventsAsync(
         string package,
         (Destination Destination, string Endpoint)[] targets,
@@ -431,6 +477,18 @@ internal static class UsageAnalytics
         }
 
         return "dapr";
+    }
+
+    /// <summary>
+    /// Strict counterpart to <see cref="ExtractHost"/>, whose scheme-prepending retry
+    /// accepts input like <c>http://[:::::</c> (it parses as host <c>http</c>). A value
+    /// with a scheme must parse as it stands; one without must parse once a scheme is
+    /// added. Used only by <see cref="ReoAllowed"/>.
+    /// </summary>
+    private static bool IsParseableEndpoint(string value)
+    {
+        var candidate = value.Contains("://", StringComparison.Ordinal) ? value : "https://" + value;
+        return Uri.TryCreate(candidate, UriKind.Absolute, out var uri) && !string.IsNullOrEmpty(uri.Host);
     }
 
     private static string? ExtractHost(string value)

@@ -602,6 +602,106 @@ public sealed class UsageAnalyticsTests
         }
     }
 
+    [Fact]
+    public void ReoGate_Open_OnACleanDeveloperMachine()
+    {
+        using var scope = GateScope();
+        ClearAllGateVars();
+        Assert.True(UsageAnalytics.ReoAllowed());
+    }
+
+    [Theory]
+    [InlineData("DO_NOT_TRACK")]
+    [InlineData("SCARF_NO_ANALYTICS")]
+    [InlineData("DIAGRID_NO_ANALYTICS")]
+    public void ReoGate_Closed_OnOptOut(string variable)
+    {
+        using var scope = GateScope();
+        ClearAllGateVars();
+        Environment.SetEnvironmentVariable(variable, "1");
+        Assert.False(UsageAnalytics.ReoAllowed());
+    }
+
+    [Fact]
+    public void ReoGate_Closed_InKubernetes()
+    {
+        using var scope = GateScope();
+        ClearAllGateVars();
+        Environment.SetEnvironmentVariable("KUBERNETES_SERVICE_HOST", "10.0.0.1");
+        Assert.False(UsageAnalytics.ReoAllowed());
+    }
+
+    [Theory]
+    [InlineData("DAPR_API_TOKEN", "t")]
+    [InlineData("DAPR_GRPC_ENDPOINT", "https://grpc.abc.diagrid.io:443")]
+    [InlineData("DAPR_HTTP_ENDPOINT", "https://http.abc.diagrid.io")]
+    public void ReoGate_Closed_WhenPointedAtCatalyst(string variable, string value)
+    {
+        using var scope = GateScope();
+        ClearAllGateVars();
+        Environment.SetEnvironmentVariable(variable, value);
+        Assert.False(UsageAnalytics.ReoAllowed());
+    }
+
+    [Theory]
+    [InlineData("CI")]
+    [InlineData("GITHUB_ACTIONS")]
+    [InlineData("GITLAB_CI")]
+    [InlineData("CIRCLECI")]
+    [InlineData("TRAVIS")]
+    [InlineData("TF_BUILD")]
+    public void ReoGate_Closed_InCi(string variable)
+    {
+        using var scope = GateScope();
+        ClearAllGateVars();
+        Environment.SetEnvironmentVariable(variable, "true");
+        Assert.False(UsageAnalytics.ReoAllowed());
+    }
+
+    [Fact]
+    public void ReoGate_FailsClosed_OnMalformedEndpoint()
+    {
+        // DAPR_GRPC_ENDPOINT is user-supplied; DetectTarget parses it as a URI.
+        using var scope = GateScope();
+        ClearAllGateVars();
+        Environment.SetEnvironmentVariable("DAPR_GRPC_ENDPOINT", "http://[:::::");
+        Assert.False(UsageAnalytics.ReoAllowed());
+    }
+
+    [Fact]
+    public void ReoGate_IsNotVacuous_UnderCi()
+    {
+        // Guards the Review Focus trap: the suite runs with CI=true in GitHub Actions.
+        using var scope = GateScope();
+        Environment.SetEnvironmentVariable("CI", "true");
+        Assert.False(UsageAnalytics.ReoAllowed());
+        ClearAllGateVars();
+        Assert.True(UsageAnalytics.ReoAllowed());
+    }
+
+    /// <summary>
+    /// Saves and restores every variable the gate reads, including
+    /// <c>KUBERNETES_SERVICE_HOST</c>, which <see cref="EnvironmentVariableScope"/> does not manage.
+    /// </summary>
+    private static EnvironmentVariableScope GateScope() =>
+        new(("KUBERNETES_SERVICE_HOST", null));
+
+    private static void ClearAllGateVars()
+    {
+        string[] names =
+        [
+            "DO_NOT_TRACK", "SCARF_NO_ANALYTICS", "DIAGRID_NO_ANALYTICS",
+            "CI", "GITHUB_ACTIONS", "GITLAB_CI", "CIRCLECI", "TRAVIS", "TF_BUILD",
+            "BUILDKITE", "JENKINS_URL",
+            "KUBERNETES_SERVICE_HOST",
+            "DAPR_GRPC_ENDPOINT", "DAPR_HTTP_ENDPOINT", "DAPR_API_TOKEN",
+        ];
+        foreach (var name in names)
+        {
+            Environment.SetEnvironmentVariable(name, null);
+        }
+    }
+
     private static UsageAnalytics.Destination Fake(string name, string endpoint, Func<bool>? allowed = null) =>
         new(name, endpoint, allowed ?? (() => true), (e, package, _) => new Uri($"{e}?package={package}"));
 
