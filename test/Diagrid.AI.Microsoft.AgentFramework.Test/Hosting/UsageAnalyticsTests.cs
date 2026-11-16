@@ -1,4 +1,10 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using Diagrid.AI.Microsoft.AgentFramework.Hosting;
+using Microsoft.Extensions.DependencyInjection;
 using System.Reflection;
 using Diagrid.AI.Microsoft.AgentFramework.Telemetry;
 
@@ -867,5 +873,307 @@ public sealed class UsageAnalyticsTests
     {
         var completed = await Task.WhenAny(tcs.Task, Task.Delay(timeout));
         Assert.NotSame(tcs.Task, completed);
+    }
+
+    // ---- Reo destination -------------------------------------------------------------
+
+    private static readonly IReadOnlyDictionary<string, string?> ReoCallerDimensions = new Dictionary<string, string?>
+    {
+        ["kind"] = "agent",
+        ["framework"] = "MicrosoftAgentFramework",
+        ["framework_version"] = "1.2.3",
+    };
+
+    /// <summary>
+    /// Reports once through the real destination list with Scarf switched off and Reo
+    /// pointed at a local address, and returns the URIs the Sender saw. Never reaches the
+    /// live telemetry host: the Sender captures, and the endpoint is loopback regardless.
+    /// </summary>
+    private static async Task<Uri> CaptureReoUriAsync(
+        string package,
+        IReadOnlyDictionary<string, string?>? dimensions)
+    {
+        using var scope = GateScope();
+        UsageAnalytics.ResetForTests();
+        var tcs = new TaskCompletionSource<Uri>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var originalSender = UsageAnalytics.Sender;
+        var originalEndpoint = UsageAnalytics.Endpoint;
+        var originalReoEndpoint = UsageAnalytics.ReoEndpoint;
+        try
+        {
+            UsageAnalytics.Endpoint = string.Empty;
+            UsageAnalytics.ReoEndpoint = "http://127.0.0.1:1/data";
+            UsageAnalytics.Sender = (uri, _) =>
+            {
+                tcs.TrySetResult(uri);
+                return Task.CompletedTask;
+            };
+
+            UsageAnalytics.Report(package, dimensions);
+            return await WaitForSendAsync(tcs, TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            UsageAnalytics.Sender = originalSender;
+            UsageAnalytics.Endpoint = originalEndpoint;
+            UsageAnalytics.ReoEndpoint = originalReoEndpoint;
+            UsageAnalytics.ResetForTests();
+        }
+    }
+
+    private static Dictionary<string, string> ParseQuery(Uri uri) =>
+        uri.Query.TrimStart('?').Split('&')
+            .Select(p => p.Split('=', 2))
+            .ToDictionary(p => Uri.UnescapeDataString(p[0]), p => Uri.UnescapeDataString(p[1]), StringComparer.Ordinal);
+
+    [Fact]
+    public void ReoEndpoint_DefaultsToTheDocumentedHost()
+    {
+        // The test assembly's module initializer blanks the live endpoint, so assert the
+        // shipped default through its constant.
+        Assert.Equal("https://telemetry.diagrid.io/data", UsageAnalytics.DefaultReoEndpoint);
+        Assert.Contains(UsageAnalytics.Destinations, d => d.Name == "reo");
+    }
+
+    [Fact]
+    public async Task ReoUrl_MapsCollectedNamesToRegisteredKeys()
+    {
+        var package = UniquePackageName();
+        var uri = await CaptureReoUriAsync(package, ReoCallerDimensions);
+        var query = ParseQuery(uri);
+
+        Assert.Equal("nuget_runtime", query["activity_type"]);
+        Assert.Equal(package, query["product"]);
+        Assert.Equal(UsageAnalytics.PackageVersion(), query["version"]);
+        Assert.Equal(Environment.Version.ToString(), query["dotnet"]);
+        Assert.Equal(
+            OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsLinux() ? "linux" : OperatingSystem.IsMacOS() ? "darwin" : "unknown",
+            query["platform"]);
+        Assert.Equal(System.Runtime.InteropServices.RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant(), query["arch"]);
+        Assert.Equal("agent", query["kind"]);
+        Assert.Equal("MicrosoftAgentFramework", query["framework"]);
+        Assert.Equal("1.2.3", query["framework_version"]);
+
+        // Exactly the nine registered keys: anything else is silently discarded by Reo.
+        Assert.Equal(
+            ["activity_type", "arch", "dotnet", "framework", "framework_version", "kind", "platform", "product", "version"],
+            query.Keys.OrderBy(k => k, StringComparer.Ordinal).ToArray());
+    }
+
+    [Fact]
+    public async Task ReoUrl_OmitsTargetAndCi()
+    {
+        var uri = await CaptureReoUriAsync(UniquePackageName(), new Dictionary<string, string?>
+        {
+            ["kind"] = "agent",
+            ["target"] = "dapr",
+            ["ci"] = "false",
+            ["os"] = "linux",
+        });
+        var query = ParseQuery(uri);
+
+        foreach (var key in new[] { "target", "ci", "os", "package", "dotnet_version" })
+        {
+            Assert.DoesNotContain(key, query.Keys);
+        }
+    }
+
+    [Fact]
+    public async Task ReoUrl_CarriesVersionAndDotnet()
+    {
+        var uri = await CaptureReoUriAsync(UniquePackageName(), ReoCallerDimensions);
+        var query = ParseQuery(uri);
+
+        Assert.False(string.IsNullOrEmpty(query["version"]));
+        Assert.False(string.IsNullOrEmpty(query["dotnet"]));
+        Assert.Equal(UsageAnalytics.DotnetVersion(), query["dotnet"]);
+    }
+
+    [Fact]
+    public async Task ReoUrl_DropsEmptyAndNullDimensions()
+    {
+        var uri = await CaptureReoUriAsync(UniquePackageName(), new Dictionary<string, string?>
+        {
+            ["kind"] = "agent",
+            ["framework"] = null,
+            ["framework_version"] = "   ",
+        });
+        var query = ParseQuery(uri);
+
+        Assert.Equal("agent", query["kind"]);
+        Assert.DoesNotContain("framework", query.Keys);
+        Assert.DoesNotContain("framework_version", query.Keys);
+    }
+
+    [Fact]
+    public async Task ReoUrl_EscapesHostileValues()
+    {
+        var uri = await CaptureReoUriAsync(UniquePackageName(), new Dictionary<string, string?>
+        {
+            ["kind"] = "a&b=c",
+            ["framework"] = "x y#z",
+        });
+        var query = ParseQuery(uri);
+
+        Assert.Equal("a&b=c", query["kind"]);
+        Assert.Equal("x y#z", query["framework"]);
+        Assert.Equal(8, query.Count);
+        Assert.Equal(string.Empty, uri.Fragment);
+    }
+
+    [Fact]
+    public async Task ReoUrl_CapsLongValues()
+    {
+        var uri = await CaptureReoUriAsync(UniquePackageName(), new Dictionary<string, string?>
+        {
+            ["kind"] = new string('k', 200),
+        });
+
+        Assert.Equal(64, ParseQuery(uri)["kind"].Length);
+    }
+
+    [Fact]
+    public async Task ReoRequest_IsAGetWithQueryParameters()
+    {
+        // The Sender only sees the Uri, so assert what is observable here: every field is
+        // in the query string, the path is /data, and there is no fragment. The method is
+        // pinned by ReoUrl_SendsNoAuthorizationHeader, which reads the request line off a
+        // real socket.
+        var uri = await CaptureReoUriAsync(UniquePackageName(), ReoCallerDimensions);
+
+        Assert.Equal("/data", uri.AbsolutePath);
+        Assert.Equal(string.Empty, uri.Fragment);
+        Assert.Equal(9, ParseQuery(uri).Count);
+    }
+
+    [Fact]
+    public async Task ReoUrl_SendsNoAuthorizationHeader()
+    {
+        // Goes through the real send path (Sender cleared) to a local socket, and reads the
+        // raw request: the request line proves GET, the headers prove no credentials.
+        using var scope = GateScope();
+        UsageAnalytics.ResetForTests();
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var originalSender = UsageAnalytics.Sender;
+        var originalEndpoint = UsageAnalytics.Endpoint;
+        var originalReoEndpoint = UsageAnalytics.ReoEndpoint;
+        try
+        {
+            UsageAnalytics.Sender = null;
+            UsageAnalytics.Endpoint = string.Empty;
+            UsageAnalytics.ReoEndpoint = $"http://127.0.0.1:{port}/data";
+
+            var package = UniquePackageName();
+            UsageAnalytics.Report(package, ReoCallerDimensions);
+
+            using var client = await listener.AcceptTcpClientAsync().WaitAsync(TimeSpan.FromSeconds(3));
+            var stream = client.GetStream();
+            var buffer = new byte[8192];
+            var request = new StringBuilder();
+            while (!request.ToString().Contains("\r\n\r\n", StringComparison.Ordinal))
+            {
+                var read = await stream.ReadAsync(buffer).AsTask().WaitAsync(TimeSpan.FromSeconds(3));
+                if (read == 0)
+                {
+                    break;
+                }
+
+                request.Append(Encoding.ASCII.GetString(buffer, 0, read));
+            }
+
+            await stream.WriteAsync(Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"));
+
+            var lines = request.ToString().Split("\r\n");
+            Assert.StartsWith("GET /data?", lines[0], StringComparison.Ordinal);
+            Assert.Contains("activity_type=nuget_runtime", lines[0], StringComparison.Ordinal);
+            Assert.DoesNotContain(lines, l => l.StartsWith("Authorization", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(lines, l => l.StartsWith("X-Api-Key", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(lines, l => l.StartsWith("User-Agent: ", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            listener.Stop();
+            UsageAnalytics.Sender = originalSender;
+            UsageAnalytics.Endpoint = originalEndpoint;
+            UsageAnalytics.ReoEndpoint = originalReoEndpoint;
+            UsageAnalytics.ResetForTests();
+        }
+    }
+
+    [Fact]
+    public async Task ReoUrl_IsNotSent_WhenTheGateIsClosed()
+    {
+        using var scope = new EnvironmentVariableScope(("KUBERNETES_SERVICE_HOST", "10.0.0.1"));
+        UsageAnalytics.ResetForTests();
+        var tcs = new TaskCompletionSource<Uri>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var originalSender = UsageAnalytics.Sender;
+        var originalEndpoint = UsageAnalytics.Endpoint;
+        var originalReoEndpoint = UsageAnalytics.ReoEndpoint;
+        try
+        {
+            UsageAnalytics.Endpoint = string.Empty;
+            UsageAnalytics.ReoEndpoint = "http://127.0.0.1:1/data";
+            UsageAnalytics.Sender = (uri, _) =>
+            {
+                tcs.TrySetResult(uri);
+                return Task.CompletedTask;
+            };
+
+            UsageAnalytics.Report(UniquePackageName(), ReoCallerDimensions);
+            await AssertNotSentAsync(tcs, TimeSpan.FromMilliseconds(300));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("KUBERNETES_SERVICE_HOST", null);
+            UsageAnalytics.Sender = originalSender;
+            UsageAnalytics.Endpoint = originalEndpoint;
+            UsageAnalytics.ReoEndpoint = originalReoEndpoint;
+            UsageAnalytics.ResetForTests();
+        }
+    }
+
+    [Fact]
+    public async Task AddDaprAgents_ReturnsImmediately_WhenEndpointHangs()
+    {
+        // AddDaprAgents is on a host application's startup path. The listener accepts
+        // connections into its backlog and never replies.
+        using var scope = GateScope();
+        UsageAnalytics.ResetForTests();
+        var hang = new TcpListener(IPAddress.Loopback, 0);
+        hang.Start();
+        var port = ((IPEndPoint)hang.LocalEndpoint).Port;
+        var originalSender = UsageAnalytics.Sender;
+        var originalEndpoint = UsageAnalytics.Endpoint;
+        var originalReoEndpoint = UsageAnalytics.ReoEndpoint;
+        try
+        {
+            UsageAnalytics.Sender = null;
+            UsageAnalytics.Endpoint = string.Empty;
+
+            // Warm the JIT and DI plumbing with Reo off, so only the timed call can send.
+            UsageAnalytics.ReoEndpoint = string.Empty;
+            new ServiceCollection().AddDaprAgents();
+            UsageAnalytics.ResetForTests();
+            UsageAnalytics.ReoEndpoint = $"http://127.0.0.1:{port}/data";
+
+            var sw = Stopwatch.StartNew();
+            new ServiceCollection().AddDaprAgents();
+            sw.Stop();
+            Assert.True(sw.ElapsedMilliseconds < 200, $"took {sw.ElapsedMilliseconds}ms");
+
+            // Let the one second HttpClient timeout end the background send before the
+            // listener goes away, so nothing lingers into the next test.
+            await Task.Delay(TimeSpan.FromMilliseconds(1300));
+        }
+        finally
+        {
+            hang.Stop();
+            UsageAnalytics.Sender = originalSender;
+            UsageAnalytics.Endpoint = originalEndpoint;
+            UsageAnalytics.ReoEndpoint = originalReoEndpoint;
+            UsageAnalytics.ResetForTests();
+        }
     }
 }

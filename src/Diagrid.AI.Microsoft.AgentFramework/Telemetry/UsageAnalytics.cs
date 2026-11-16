@@ -97,6 +97,9 @@ internal static class UsageAnalytics
         "on",
     };
 
+    /// <summary>The Reo endpoint events are sent to. No API key: nothing secret ships in the package.</summary>
+    internal const string DefaultReoEndpoint = "https://telemetry.diagrid.io/data";
+
     private const string CatalystHostSuffix = "diagrid.io";
     private const int MaxDimensionLength = 64;
 
@@ -150,9 +153,16 @@ internal static class UsageAnalytics
     /// Gets or sets the destinations every event is sent to. Tests replace the list; it
     /// is read once per <see cref="Report"/> call.
     /// </summary>
+    /// <remarks>
+    /// Destinations are sent to sequentially on the background task, in list order. A hung
+    /// Scarf send therefore delays the Reo send by up to the one second
+    /// <see cref="HttpClient.Timeout"/>. That is bounded and off the caller's path, so it
+    /// is accepted rather than parallelized.
+    /// </remarks>
     internal static IReadOnlyList<Destination> Destinations { get; set; } =
     [
         new Destination("scarf", "https://diagrid.gateway.scarf.sh/dotnet-ai", () => !IsReportingDisabled(), BuildUrl),
+        new Destination("reo", DefaultReoEndpoint, ReoAllowed, BuildReoUrl),
     ];
 
     /// <summary>
@@ -170,6 +180,24 @@ internal static class UsageAnalytics
             if (scarf is not null)
             {
                 scarf.Endpoint = value;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the Reo endpoint that receives <c>nuget_runtime</c> events. Set to an
+    /// empty string to turn Reo reporting into a no-op, including in tests. This proxies to
+    /// the Reo entry of <see cref="Destinations"/>, the way <see cref="Endpoint"/> proxies Scarf.
+    /// </summary>
+    internal static string ReoEndpoint
+    {
+        get => Destinations.FirstOrDefault(d => d.Name == "reo")?.Endpoint ?? string.Empty;
+        set
+        {
+            var reo = Destinations.FirstOrDefault(d => d.Name == "reo");
+            if (reo is not null)
+            {
+                reo.Endpoint = value;
             }
         }
     }
@@ -393,14 +421,59 @@ internal static class UsageAnalytics
             }
         }
 
-        var query = string.Join(
+        return new Uri($"{endpoint}?{EncodeQuery(parameters)}");
+    }
+
+    /// <summary>
+    /// Builds the Reo request URI: the registered <c>nuget_runtime</c> keys only, mapped from
+    /// the collected names. <c>version</c> and <c>dotnet</c> are read here and never enter the
+    /// shared dimension dictionary, so Scarf's URL is unaffected. <c>target</c> and
+    /// <c>ci</c> are deliberately absent: the gate makes both constant on every Reo event.
+    /// Any key Reo has not registered is silently discarded on arrival.
+    /// </summary>
+    private static Uri BuildReoUrl(string endpoint, string package, IReadOnlyDictionary<string, string?>? dimensions)
+    {
+        var candidates = new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["activity_type"] = "nuget_runtime",
+            ["product"] = package,
+            ["version"] = PackageVersion(),
+            ["dotnet"] = DotnetVersion(),
+            ["platform"] = DetectOperatingSystem(),
+            ["arch"] = RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant(),
+        };
+
+        foreach (var key in new[] { "kind", "framework", "framework_version" })
+        {
+            if (dimensions is not null && dimensions.TryGetValue(key, out var value))
+            {
+                candidates[key] = value;
+            }
+        }
+
+        var parameters = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var pair in candidates)
+        {
+            var cleaned = pair.Value is null ? string.Empty : Clean(pair.Value);
+            if (cleaned.Length > 0)
+            {
+                parameters[pair.Key] = cleaned;
+            }
+        }
+
+        return new Uri($"{endpoint}?{EncodeQuery(parameters)}");
+    }
+
+    /// <summary>
+    /// Sorts by key and percent-encodes each name and value, so a hostile value such as
+    /// <c>a&amp;b=c</c> stays one parameter. Shared by every destination's builder.
+    /// </summary>
+    private static string EncodeQuery(Dictionary<string, string> parameters) =>
+        string.Join(
             "&",
             parameters
                 .OrderBy(pair => pair.Key, StringComparer.Ordinal)
                 .Select(pair => $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(Clean(pair.Value))}"));
-
-        return new Uri($"{endpoint}?{query}");
-    }
 
     /// <summary>
     /// The package's own informational version (build metadata after '+' trimmed,
