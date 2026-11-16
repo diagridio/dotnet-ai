@@ -221,17 +221,37 @@ starts, not deployments or users.
 runtime version, the agent framework and the installed version of its library (`framework`,
 `framework_version`), `kind=agent`, whether the process points at Catalyst or at a plain Dapr
 sidecar (`target`), and whether it runs under a CI variable (`ci`). Nothing else: no
-application data, configuration, app IDs, prompts, or hostnames. The receiving service is
-[Scarf](https://scarf.sh). It derives coarse company and location information from the request
-IP. How Scarf handles that data is described in
-[Scarf's privacy policy](https://about.scarf.sh/privacy-policy).
+application data, configuration, app IDs, prompts, or hostnames.
+
+Two services receive these events. Each derives coarse company and location information from
+the request IP:
+
+- [Scarf](https://scarf.sh) receives every field above. See
+  [Scarf's privacy policy](https://about.scarf.sh/privacy-policy).
+- [Reo](https://www.reo.dev) receives a `GET` to `https://telemetry.diagrid.io/data`, with no API
+  key and no auth header. It gets the package name (`product`), package version (`version`),
+  .NET runtime version (`dotnet`), operating system (`platform`), architecture (`arch`), `kind`,
+  `framework` and `framework_version`. It does not get `target` or `ci`. See
+  [Reo's privacy policy](https://www.reo.dev/privacy-policy).
+
+**Reo reports less often than Scarf.** No Reo event is sent:
+
+- inside Kubernetes (`KUBERNETES_SERVICE_HOST` is set),
+- under a CI variable,
+- when the process points at Catalyst (a Dapr endpoint or token variable), or when the Dapr
+  endpoint value can't be parsed.
+
+Scarf still reports in all of these cases. The two services will therefore show different
+totals. Scarf counts every process start. Reo counts only starts outside Kubernetes, CI and
+Catalyst.
 
 **It never gets in the way:** the request runs on a background task with a one second HTTP
 timeout, every failure is swallowed, and the caller never waits. Blocked egress and air-gapped
 clusters behave normally. Nothing is written to your application's output — there is no
 logger to configure for it either.
 
-To opt out, set any of these environment variables before starting your application:
+To opt out of both services, set any of these environment variables before starting your
+application. There is no enable flag:
 
 ```bash
 export DO_NOT_TRACK=1
