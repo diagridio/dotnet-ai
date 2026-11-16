@@ -679,6 +679,115 @@ public sealed class UsageAnalyticsTests
         Assert.True(UsageAnalytics.ReoAllowed());
     }
 
+    [Theory]
+    [InlineData("1.2.3+abc123def", "1.2.3")]
+    [InlineData("1.2.3-preview.1+abc123def", "1.2.3-preview.1")]
+    [InlineData("1.2.3", "1.2.3")]
+    [InlineData("+abc", "unknown")]
+    [InlineData("", "unknown")]
+    [InlineData(null, "unknown")]
+    public void PackageVersion_TrimsBuildMetadataAndKeepsPrerelease(string? raw, string expected)
+    {
+        Assert.Equal(expected, UsageAnalytics.PackageVersionFromRaw(raw));
+    }
+
+    [Fact]
+    public void PackageVersion_ReadsTheInformationalVersionOfThePackageAssembly()
+    {
+        var expected = typeof(UsageAnalytics).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion.Split('+')[0];
+        Assert.Equal(expected, UsageAnalytics.PackageVersion());
+    }
+
+    [Fact]
+    public void Version_IsUnknown_WhenAttributeIsAbsent()
+    {
+        // The trimmer can strip AssemblyInformationalVersionAttribute entirely.
+        var bare = System.Reflection.Emit.AssemblyBuilder.DefineDynamicAssembly(
+            new AssemblyName("NoInformationalVersion"),
+            System.Reflection.Emit.AssemblyBuilderAccess.Run);
+
+        Assert.Equal("unknown", UsageAnalytics.PackageVersionFrom(bare));
+        Assert.Equal("unknown", UsageAnalytics.PackageVersionFrom(null));
+    }
+
+    [Fact]
+    public void Dotnet_IsUnknown_WhenDescriptionIsUnavailable()
+    {
+        Assert.Equal("unknown", UsageAnalytics.DotnetVersionFrom(() => throw new PlatformNotSupportedException()));
+        Assert.Equal("unknown", UsageAnalytics.DotnetVersionFrom(() => null));
+        Assert.Equal("unknown", UsageAnalytics.DotnetVersionFrom(() => "  "));
+    }
+
+    [Fact]
+    public void Dotnet_ReadsTheRuntimeVersion()
+    {
+        Assert.Equal(Environment.Version.ToString(), UsageAnalytics.DotnetVersion());
+    }
+
+    [Fact]
+    public void Dotnet_IsTrimmedAndCapped()
+    {
+        Assert.Equal("8.0.11", UsageAnalytics.DotnetVersionFrom(() => " 8.0.11 "));
+        Assert.Equal(64, UsageAnalytics.DotnetVersionFrom(() => new string('9', 200)).Length);
+    }
+
+    [Fact]
+    public async Task ScarfUrl_IsUnchanged_WhenReoDimensionsAreAdded()
+    {
+        // The Review Focus case: Reo's `dotnet` key must not reach the shared dimension
+        // dictionary. Scarf keeps sending version= and dotnet_version= exactly as before.
+        using var scope = new EnvironmentVariableScope();
+        UsageAnalytics.ResetForTests();
+        var tcs = new TaskCompletionSource<Uri>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var originalSender = UsageAnalytics.Sender;
+        try
+        {
+            UsageAnalytics.Sender = (uri, _) =>
+            {
+                tcs.TrySetResult(uri);
+                return Task.CompletedTask;
+            };
+
+            UsageAnalytics.Report("Diagrid.AI.Microsoft.AgentFramework", new Dictionary<string, string?>
+            {
+                ["os"] = "linux",
+                ["arch"] = "x64",
+                ["target"] = "dapr",
+                ["ci"] = "false",
+                ["kind"] = "agent",
+                ["framework"] = "AgentFramework",
+                ["framework_version"] = "1.0.0",
+            });
+
+            var uri = await WaitForSendAsync(tcs, TimeSpan.FromSeconds(2));
+
+            // Same golden value as ScarfUrl_HasTheDocumentedShape (kept in one helper here
+            // because that test builds its literal inline and must not be edited).
+            Assert.Equal(ScarfGolden(), uri.AbsoluteUri);
+            Assert.DoesNotContain("dotnet=", uri.Query);
+            Assert.Equal(
+                ["arch", "ci", "dotnet_version", "framework", "framework_version", "kind", "os", "package", "target", "version"],
+                uri.Query.TrimStart('?').Split('&').Select(p => p.Split('=')[0]).ToArray());
+        }
+        finally
+        {
+            UsageAnalytics.Sender = originalSender;
+            UsageAnalytics.ResetForTests();
+        }
+    }
+
+    private static string ScarfGolden()
+    {
+        var packageVersion = typeof(UsageAnalytics).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion.Split('+')[0];
+        return "https://diagrid.gateway.scarf.sh/dotnet-ai?arch=x64&ci=false" +
+            $"&dotnet_version={Environment.Version}" +
+            "&framework=AgentFramework&framework_version=1.0.0&kind=agent&os=linux" +
+            "&package=Diagrid.AI.Microsoft.AgentFramework&target=dapr" +
+            $"&version={packageVersion}";
+    }
+
     /// <summary>
     /// Saves and restores every variable the gate reads, including
     /// <c>KUBERNETES_SERVICE_HOST</c>, which <see cref="EnvironmentVariableScope"/> does not manage.

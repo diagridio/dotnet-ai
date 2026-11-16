@@ -367,7 +367,7 @@ internal static class UsageAnalytics
             ["version"] = PackageVersion(),
             ["os"] = DetectOperatingSystem(),
             ["arch"] = RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant(),
-            ["dotnet_version"] = Environment.Version.ToString(),
+            ["dotnet_version"] = DotnetVersion(),
             ["target"] = DetectTarget(),
             ["ci"] = IsRunningInCi() ? "true" : "false",
         };
@@ -402,16 +402,67 @@ internal static class UsageAnalytics
         return new Uri($"{endpoint}?{query}");
     }
 
-    private static string PackageVersion() => CleanInformationalVersion(typeof(UsageAnalytics).Assembly) ?? "unknown";
+    /// <summary>
+    /// The package's own informational version (build metadata after '+' trimmed,
+    /// prerelease kept), or <c>"unknown"</c>. Never throws.
+    /// </summary>
+    internal static string PackageVersion() => PackageVersionFrom(typeof(UsageAnalytics).Assembly);
+
+    /// <summary>
+    /// <see cref="PackageVersion"/> for an arbitrary assembly. Returns <c>"unknown"</c> when
+    /// the assembly is null, the attribute is absent (the trimmer can strip it) or empty,
+    /// or anything throws.
+    /// </summary>
+    internal static string PackageVersionFrom(Assembly? assembly)
+    {
+        try
+        {
+            return assembly is null ? "unknown" : CleanInformationalVersion(assembly) ?? "unknown";
+        }
+        catch
+        {
+            return "unknown";
+        }
+    }
+
+    /// <summary>
+    /// <see cref="PackageVersionFrom"/> for a raw informational-version string.
+    /// </summary>
+    internal static string PackageVersionFromRaw(string? raw) => CleanVersionString(raw) ?? "unknown";
+
+    /// <summary>
+    /// The runtime version (<see cref="Environment.Version"/>, e.g. <c>8.0.11</c>), trimmed and
+    /// capped, or <c>"unknown"</c>. Never throws.
+    /// </summary>
+    internal static string DotnetVersion() => DotnetVersionFrom(() => Environment.Version.ToString());
+
+    /// <summary>
+    /// <see cref="DotnetVersion"/> over an injectable source. Returns <c>"unknown"</c> when the
+    /// source returns null or whitespace, or throws.
+    /// </summary>
+    internal static string DotnetVersionFrom(Func<string?> source)
+    {
+        try
+        {
+            var value = source();
+            return string.IsNullOrWhiteSpace(value) ? "unknown" : Clean(value);
+        }
+        catch
+        {
+            return "unknown";
+        }
+    }
 
     /// <summary>
     /// Returns <paramref name="assembly"/>'s <see cref="AssemblyInformationalVersionAttribute"/>
     /// value with anything from the first '+' onward stripped (MinVer appends the commit
     /// hash there), or <see langword="null"/> when the attribute is absent or empty.
     /// </summary>
-    private static string? CleanInformationalVersion(Assembly assembly)
+    private static string? CleanInformationalVersion(Assembly assembly) =>
+        CleanVersionString(assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion);
+
+    private static string? CleanVersionString(string? raw)
     {
-        var raw = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
         if (string.IsNullOrEmpty(raw))
         {
             return null;
