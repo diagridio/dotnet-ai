@@ -664,6 +664,17 @@ public sealed class UsageAnalyticsTests
         Assert.False(UsageAnalytics.ReoAllowed());
     }
 
+    [Theory]
+    [InlineData("http://localhost:50001")]
+    [InlineData("localhost:50001")]
+    public void ReoGate_Open_ForLocalDaprEndpoint(string endpoint)
+    {
+        using var scope = GateScope();
+        ClearAllGateVars();
+        Environment.SetEnvironmentVariable("DAPR_GRPC_ENDPOINT", endpoint);
+        Assert.True(UsageAnalytics.ReoAllowed());
+    }
+
     [Fact]
     public void ReoGate_FailsClosed_OnMalformedEndpoint()
     {
