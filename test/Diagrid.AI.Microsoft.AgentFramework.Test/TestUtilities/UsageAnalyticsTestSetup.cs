@@ -19,6 +19,10 @@ internal static class UsageAnalyticsTestSetup
     internal static void Initialize()
     {
         UsageAnalytics.Sender = static (_, _) => Task.CompletedTask;
+
+        // The Reo host is live. Blank it for the whole test process so no test that clears
+        // the opt-out variables can reach it; Reo tests point it at a local address.
+        UsageAnalytics.ReoEndpoint = string.Empty;
         Environment.SetEnvironmentVariable("DIAGRID_NO_ANALYTICS", "1");
     }
 }
