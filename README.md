@@ -1,8 +1,81 @@
 # ![Logo](https://raw.githubusercontent.com/diagridio/dotnet-ai/master/properties/diagrid_dark.png)
 
 [![NuGet Version](https://img.shields.io/nuget/v/Diagrid.AI.Microsoft.AgentFramework?logo=nuget&label=Latest%20version&style=flat)](https://www.nuget.org/packages/Diagrid.AI.Microsoft.AgentFramework)
+[![NuGet Version](https://img.shields.io/nuget/v/Diagrid.AI.Identity?logo=nuget&label=Diagrid.AI.Identity&style=flat)](https://www.nuget.org/packages/Diagrid.AI.Identity)
 
-Diagrid.AI.Microsoft.AgentFramework is a library that facilitates building agents using Microsoft's Agent Framework atop Dapr's Durable Workflows.
+Durable execution for [Microsoft Agent Framework](https://github.com/microsoft/agent-framework)
+agents in .NET, on [Diagrid](https://www.diagrid.io/catalyst), built on Dapr.
+`Diagrid.AI.Microsoft.AgentFramework` runs each agent turn on
+[Dapr Workflow](https://docs.dapr.io/developing-applications/building-blocks/workflow/), so an
+agent that crashes or restarts mid-run picks up where it left off instead of starting over. Run
+it on Diagrid for a managed workflow engine, or against your own Dapr sidecar.
+
+## Install
+
+```sh
+dotnet add package Diagrid.AI.Microsoft.AgentFramework
+```
+
+To verify Diagrid user tokens on inbound requests (see [Identity](https://github.com/diagridio/dotnet-ai#identity)), also add:
+
+```sh
+dotnet add package Diagrid.AI.Identity
+```
+
+Both packages target `net8.0`, `net9.0` and `net10.0`.
+
+## Prerequisites
+
+- [.NET SDK](https://dotnet.microsoft.com/download): .NET 8 or later for your app. Building
+  this repository and its examples needs the .NET 10 SDK, which `global.json` pins
+  (`10.0.100`, rolling forward to later feature bands).
+- A Dapr sidecar with workflow support, one of:
+  - [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) with an
+    [initialized Dapr environment](https://docs.dapr.io/getting-started/install-dapr-selfhost/)
+    and a state store that has `actorStateStore: "true"`, like
+    [`examples/Components/redis.yaml`](https://github.com/diagridio/dotnet-ai/blob/master/examples/Components/redis.yaml).
+  - The [Diagrid CLI](https://docs.diagrid.io/catalyst/references/cli-reference/) and a
+    Diagrid project, which provides the workflow engine and state store for you.
+- A Dapr [conversation component](https://docs.dapr.io/developing-applications/building-blocks/conversation/)
+  for the LLM each agent calls. The examples use
+  [`examples/Components/conversation-ollama.yaml`](https://github.com/diagridio/dotnet-ai/blob/master/examples/Components/conversation-ollama.yaml),
+  which needs [Ollama](https://ollama.com/) serving `ministral-3:3b` (`ollama pull ministral-3:3b`).
+
+## How it works
+
+An agent here is a Microsoft Agent Framework `AIAgent` whose turn runs as a Dapr workflow. Each
+LLM call, tool call and context-provider step is a separate workflow activity, and the sidecar
+records the result of every completed activity in the workflow's history. If the process crashes
+or is redeployed mid-turn, the workflow replays from that history in the new process and resumes
+at the first activity that had not finished: completed LLM and tool calls are not repeated.
+Activities run at least once, though: one that was in flight when the process died runs again,
+so tools with side effects should be safe to repeat.
+
+You call agents the same way either way: through `IDaprAgentInvoker` from ordinary code, or from
+inside your own Dapr workflows with `context.GetAgent(...)`.
+
+## Run an example
+
+[`examples/AgentInvokerDemo`](https://github.com/diagridio/dotnet-ai/tree/master/examples/AgentInvokerDemo)
+is the smallest end-to-end agent. With Dapr initialized and Ollama running, start the sidecar from
+the `examples` directory:
+
+```sh
+dapr run --app-id invokerapp --dapr-grpc-port 50001 --dapr-http-port 3500 --resources-path "Components/"
+```
+
+Then, in another terminal, run the app from `examples/AgentInvokerDemo` and ask the agent something:
+
+```sh
+dotnet run
+curl -X POST http://localhost:5041/ask -H "Content-Type: application/json" \
+  -d '{"prompt": "Give me three reasons to use workflow activities for AI calls."}'
+```
+
+To run on Diagrid instead, start the app with `diagrid dev run -- dotnet run`, as
+[`examples/IdentityDemo`](https://github.com/diagridio/dotnet-ai/tree/master/examples/IdentityDemo)
+does. The conversation component then has to exist in your Diagrid project and point at an
+LLM provider that Diagrid can reach, so a local Ollama will not do.
 
 ## Register Agents with dependency injection
 
@@ -12,7 +85,7 @@ The following shows the simple dependency injection registration of MAF agents:
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
 
-// Register agents to run within 
+// Register an agent; each run executes as Dapr Workflow activities
 builder.Services.AddDaprAgents()
     .WithAgent(
         agentName: "SampleAgent",
@@ -219,7 +292,7 @@ starts, not deployments or users.
 
 **What is sent:** the package name and version, operating system, architecture, the .NET
 runtime version, the agent framework and the installed version of its library (`framework`,
-`framework_version`), `kind=agent`, whether the process points at Catalyst or at a plain Dapr
+`framework_version`), `kind=agent`, whether the process points at Diagrid or at a plain Dapr
 sidecar (`target`), and whether it runs under a CI variable (`ci`). Nothing else: no
 application data, configuration, app IDs, prompts, or hostnames. The receiving service is
 [Scarf](https://scarf.sh). It derives coarse company and location information from the request
@@ -243,7 +316,7 @@ export DIAGRID_NO_ANALYTICS=1
 
 ## Identity
 
-`Diagrid.AI.Identity` verifies the inbound Catalyst user token on every request and carries it
+`Diagrid.AI.Identity` verifies the inbound Diagrid user token on every request and carries it
 on outbound on-behalf-of calls. Two lines install it:
 
 > The whole surface is marked `[Experimental("DGRDID001")]`, so it may change outside a major
@@ -318,5 +391,14 @@ for a complete, runnable example.
 ## Links
 - [Diagrid](https://diagrid.io/)
 - [Diagrid Documentation](https://docs.diagrid.io/)
-- [NuGet Package](https://www.nuget.org/packages/Diagrid.AI.Microsoft.AgentFramework)
+- [Diagrid quickstarts](https://docs.diagrid.io/catalyst/quickstarts/)
+- [NuGet: Diagrid.AI.Microsoft.AgentFramework](https://www.nuget.org/packages/Diagrid.AI.Microsoft.AgentFramework)
+- [NuGet: Diagrid.AI.Identity](https://www.nuget.org/packages/Diagrid.AI.Identity)
 - [License](https://github.com/diagridio/dotnet-ai/blob/master/LICENSE.md)
+
+### Diagrid AI SDKs for other languages
+- [Python](https://github.com/diagridio/python-ai)
+- [TypeScript](https://github.com/diagridio/typescript-ai)
+- [Go](https://github.com/diagridio/go-ai)
+- [Java](https://github.com/diagridio/java-ai)
+- [Rust](https://github.com/diagridio/rust-ai)
